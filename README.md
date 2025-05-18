@@ -9,7 +9,7 @@ A lightweight web framework for Crystal, providing routing, controllers, and vie
    ```yaml
    dependencies:
      takarik:
-       github: your-github-user/takarik
+       github: takarik/takarik
    ```
 
 2. Run `shards install`
@@ -92,6 +92,47 @@ app.router.define do
   end
 end
 
+# Or separate file like
+Takarik::Router.define do
+  # Basic routes with explicit controller
+  get "/",      controller: HomeController, action: :index
+  get "/show",  controller: HomeController, action: :show
+  get "/foo",   controller: HomeController, action: :foo
+  get "/bar",   controller: HomeController, action: :bar
+
+  # Controller-scoped routes
+  map UsersController do
+    get "/users",      action: :index
+    get "/users/new",  action: :new
+    get "/users/:id",  action: :show
+    post "/users",     action: :create
+  end
+
+  # Controller with both explicit routes and resources
+  map BarsController do
+    get "/bars/:id",  action: :show
+
+    # Resource with filtered actions (no block)
+    resources :bars,  except: [:show, :create, :update, :destroy]
+  end
+
+  # Simple resource with only specific actions
+  resources :foos, controller: FoosController, only: [:index]
+
+  # Full resource with nested collection/member blocks
+  resources :admins, controller: AdminsController do
+    # Routes applied to the collection (/admins/...)
+    collection do
+      get "/baz", action: :baz
+    end
+
+    # Routes applied to individual resources (/admins/:id/...)
+    member do
+      get "/qux", action: :qux
+    end
+  end
+end
+
 app.run
 ```
 
@@ -114,7 +155,7 @@ The `resources` method creates RESTful routes following Rails conventions:
 You can add custom routes to resources:
 
 ```crystal
-resources :users do
+resources :users, controller: UsersController do
   # Routes that operate on a specific user
   member do
     get "/refresh", action: :refresh        # Creates GET /users/:id/refresh
@@ -129,7 +170,7 @@ Run tests with `crystal spec`
 
 ## Contributing
 
-1. Fork it (<https://github.com/your-github-user/takarik/fork>)
+1. Fork it (<https://github.com/takarik/takarik/fork>)
 2. Create your feature branch (`git checkout -b my-new-feature`)
 3. Commit your changes (`git commit -am 'Add some feature'`)
 4. Push to the branch (`git push origin my-new-feature`)
@@ -137,4 +178,4 @@ Run tests with `crystal spec`
 
 ## Contributors
 
-- [Sinan Keskin](https://github.com/your-github-user) - creator and maintainer
+- [Sinan Keskin](https://github.com/sinankeskin) - creator and maintainer
