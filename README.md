@@ -1,6 +1,6 @@
 # takarik
 
-TODO: Write a description here
+A lightweight web framework for Crystal, providing routing, controllers, and views.
 
 ## Installation
 
@@ -20,11 +20,28 @@ TODO: Write a description here
 require "takarik"
 ```
 
-TODO: Write usage instructions here
+Create controllers, define routes, and start your application:
+
+```crystal
+class HomeController < Takarik::BaseController
+  actions :index
+
+  def index
+    render plain: "Hello, World!"
+  end
+end
+
+app = Takarik::Application.new
+app.router.define do |map|
+  map.get "/", controller: HomeController, action: :index
+end
+
+app.run
+```
 
 ## Development
 
-TODO: Write development instructions here
+Run tests with `crystal spec`
 
 ## Contributing
 

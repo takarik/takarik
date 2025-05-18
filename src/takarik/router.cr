@@ -33,6 +33,10 @@ module Takarik
       @radix_tree = Radix::Tree(Hash(String, RouteInfo)).new
     end
 
+    def define(&block : Router -> Nil)
+      yield self
+    end
+
     def match(request_method : String, request_path : String) : {RouteInfo, Hash(String, String)}?
       radix_result = @radix_tree.find(request_path)
 

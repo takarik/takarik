@@ -11,6 +11,4 @@ require "./takarik/views/ecr_renderer"
 
 module Takarik
   VERSION = "0.1.0"
-
-  # TODO: Any other core framework setup?
 end
