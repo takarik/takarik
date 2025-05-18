@@ -1,0 +1,17 @@
+name: takarik
+version: 0.1.0
+
+authors:
+  - Sinan Keskin <sinan@kesk.in>
+
+targets:
+  takarik:
+    main: src/takarik.cr
+
+dependencies:
+  radix:
+    github: luislavena/radix
+
+crystal: 1.12.1
+
+license: MIT
