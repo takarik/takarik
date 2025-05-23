@@ -10,16 +10,84 @@ class CallbackTestController < Takarik::BaseController
   property after_calls : Array(String) = [] of String
   property action_calls : Array(String) = [] of String
 
-  before_actions([
-    {method: :log_request, only: nil, except: nil},
-    {method: :authenticate, only: [:show, :create, :update, :destroy], except: nil},
-    {method: :authorize_admin, only: [:destroy], except: nil}
-  ])
+  before_action :log_request
+  before_action :authenticate, only: [:show, :create, :update, :destroy]
+  before_action :authorize_admin, only: [:destroy]
 
-  after_actions([
-    {method: :log_response, only: nil, except: nil},
-    {method: :cleanup_session, only: [:destroy], except: nil}
-  ])
+  after_action :log_response
+  after_action :cleanup_session, only: [:destroy]
+
+  def index
+    @action_calls << "index"
+    render plain: "index"
+  end
+
+  def show
+    @action_calls << "show"
+    render plain: "show"
+  end
+
+  def create
+    @action_calls << "create"
+    render status: :created
+  end
+
+  def update
+    @action_calls << "update"
+    render plain: "update"
+  end
+
+  def destroy
+    @action_calls << "destroy"
+    render status: :no_content
+  end
+
+  def special_action
+    @action_calls << "special_action"
+    render plain: "special"
+  end
+
+  private def log_request
+    @before_calls << "log_request"
+    true
+  end
+
+  private def authenticate
+    @before_calls << "authenticate"
+    true
+  end
+
+  private def authorize_admin
+    @before_calls << "authorize_admin"
+    true
+  end
+
+  private def log_response
+    @after_calls << "log_response"
+  end
+
+  private def cleanup_session
+    @after_calls << "cleanup_session"
+  end
+end
+
+# Individual before_action/after_action calls - testing multiple individual DSL calls
+class CallbackTestControllerIndividualDSL < Takarik::BaseController
+  include Takarik::Callbacks
+
+  actions :index, :show, :create, :update, :destroy, :special_action
+
+  property before_calls : Array(String) = [] of String
+  property after_calls : Array(String) = [] of String
+  property action_calls : Array(String) = [] of String
+
+  # Multiple individual calls - should behave identically to array syntax
+  before_action :log_request
+  before_action :authenticate, only: [:show, :create, :update, :destroy]
+  before_action :authorize_admin, only: [:destroy]
+
+  after_action :log_response
+  after_action :cleanup_session, only: [:destroy]
 
   def index
     @action_calls << "index"
@@ -84,15 +152,63 @@ class HaltingCallbackController < Takarik::BaseController
   property after_calls : Array(String) = [] of String
   property action_calls : Array(String) = [] of String
 
-  before_actions([
-    {method: :always_run, only: nil, except: nil},
-    {method: :check_auth, only: [:protected_action, :admin_action], except: nil},
-    {method: :check_admin, only: [:admin_action], except: nil}
-  ])
+  before_action :always_run
+  before_action :check_auth, only: [:protected_action, :admin_action]
+  before_action :check_admin, only: [:admin_action]
 
-  after_actions([
-    {method: :always_cleanup, only: nil, except: nil}
-  ])
+  after_action :always_cleanup
+
+  def open_action
+    @action_calls << "open_action"
+    render plain: "open"
+  end
+
+  def protected_action
+    @action_calls << "protected_action"
+    render plain: "protected"
+  end
+
+  def admin_action
+    @action_calls << "admin_action"
+    render plain: "admin"
+  end
+
+  private def always_run
+    @before_calls << "always_run"
+    true
+  end
+
+  private def check_auth
+    @before_calls << "check_auth"
+    false # This will halt processing
+  end
+
+  private def check_admin
+    @before_calls << "check_admin"
+    true
+  end
+
+  private def always_cleanup
+    @after_calls << "always_cleanup"
+  end
+end
+
+# Individual DSL version of halting callbacks
+class HaltingCallbackControllerIndividualDSL < Takarik::BaseController
+  include Takarik::Callbacks
+
+  actions :open_action, :protected_action, :admin_action
+
+  property before_calls : Array(String) = [] of String
+  property after_calls : Array(String) = [] of String
+  property action_calls : Array(String) = [] of String
+
+  # Individual callback calls
+  before_action :always_run
+  before_action :check_auth, only: [:protected_action, :admin_action]
+  before_action :check_admin, only: [:admin_action]
+
+  after_action :always_cleanup
 
   def open_action
     @action_calls << "open_action"
@@ -137,13 +253,9 @@ class ExceptFilterController < Takarik::BaseController
   property before_calls : Array(String) = [] of String
   property after_calls : Array(String) = [] of String
 
-  before_actions([
-    {method: :check_maintenance, only: nil, except: [:public_action]}
-  ])
+  before_action :check_maintenance, except: [:public_action]
 
-  after_actions([
-    {method: :track_usage, only: nil, except: [:special_action]}
-  ])
+  after_action :track_usage, except: [:special_action]
 
   def public_action
     render plain: "public"
@@ -174,17 +286,63 @@ class MultipleCallbackController < Takarik::BaseController
 
   property callback_order : Array(String) = [] of String
 
-  before_actions([
-    {method: :first_before, only: nil, except: nil},
-    {method: :second_before, only: nil, except: nil},
-    {method: :third_before, only: nil, except: nil}
-  ])
+  before_action :first_before
+  before_action :second_before
+  before_action :third_before
 
-  after_actions([
-    {method: :first_after, only: nil, except: nil},
-    {method: :second_after, only: nil, except: nil},
-    {method: :third_after, only: nil, except: nil}
-  ])
+  after_action :first_after
+  after_action :second_after
+  after_action :third_after
+
+  def test_action
+    @callback_order << "action"
+    render plain: "test"
+  end
+
+  private def first_before
+    @callback_order << "first_before"
+    true
+  end
+
+  private def second_before
+    @callback_order << "second_before"
+    true
+  end
+
+  private def third_before
+    @callback_order << "third_before"
+    true
+  end
+
+  private def first_after
+    @callback_order << "first_after"
+  end
+
+  private def second_after
+    @callback_order << "second_after"
+  end
+
+  private def third_after
+    @callback_order << "third_after"
+  end
+end
+
+# Individual DSL version of multiple callbacks
+class MultipleCallbackControllerIndividualDSL < Takarik::BaseController
+  include Takarik::Callbacks
+
+  actions :test_action
+
+  property callback_order : Array(String) = [] of String
+
+  # Multiple individual callback calls
+  before_action :first_before
+  before_action :second_before
+  before_action :third_before
+
+  after_action :first_after
+  after_action :second_after
+  after_action :third_after
 
   def test_action
     @callback_order << "action"

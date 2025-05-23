@@ -163,14 +163,19 @@ Controllers support various rendering options and callbacks:
 class UsersController < Takarik::BaseController
   actions :index, :show, :create, :destroy
 
-  # Callbacks - executed before/after actions
-  before_actions [
-    {method: :authenticate_user, only: nil, except: nil},
-    {method: :load_user, only: [:show, :destroy], except: nil}
-  ]
-  after_actions [
-    {method: :log_activity, only: nil, except: [:index]}
-  ]
+  # Callbacks - Use individual DSL syntax (recommended) or array syntax
+  before_action :authenticate_user
+  before_action :load_user, only: [:show, :destroy]
+  after_action :log_activity, except: [:index]
+
+  # Alternative array syntax (legacy):
+  # before_actions [
+  #   {method: :authenticate_user, only: nil, except: nil},
+  #   {method: :load_user, only: [:show, :destroy], except: nil}
+  # ]
+  # after_actions [
+  #   {method: :log_activity, only: nil, except: [:index]}
+  # ]
 
   def index
     render json: ["user1", "user2"]
@@ -224,7 +229,78 @@ end
 
 #### Callbacks
 
-Takarik supports before and after action callbacks with flexible filtering:
+Takarik supports before and after action callbacks with flexible filtering. You can use either individual DSL calls (Rails-style) or array-based syntax:
+
+##### Individual DSL Syntax (Recommended)
+
+```crystal
+class MyController < Takarik::BaseController
+  # Include the callbacks module
+  include Takarik::Callbacks
+
+  # Individual callback declarations (clean, Rails-like syntax)
+  before_action :authenticate                                    # Run on all actions
+  before_action :load_resource, only: [:show, :update, :destroy]    # Run only on specified actions
+  before_action :check_permissions, except: [:index, :show]         # Run on all except specified actions
+
+  after_action :log_action                                      # Run on all actions
+  after_action :cleanup, only: [:destroy]                      # Run only on destroy
+
+  # You can mix and match - add more callbacks anywhere in the controller
+  before_action :validate_request, only: [:create, :update]
+
+  def index
+    # Action logic
+  end
+
+  def show
+    # Action logic
+  end
+
+  def create
+    # Action logic
+  end
+
+  def update
+    # Action logic
+  end
+
+  def destroy
+    # Action logic
+  end
+
+  private def authenticate
+    # Return false to halt execution
+    return false unless authenticated?
+    true
+  end
+
+  private def load_resource
+    @resource = find_resource(params["id"])
+    true
+  end
+
+  private def check_permissions
+    # Callback logic here
+    true
+  end
+
+  private def validate_request
+    # Validation logic
+    true
+  end
+
+  private def log_action
+    puts "Action #{@current_action_name} completed"
+  end
+
+  private def cleanup
+    # Cleanup logic
+  end
+end
+```
+
+##### Array-Based Syntax (Legacy)
 
 ```crystal
 class MyController < Takarik::BaseController
@@ -267,6 +343,26 @@ class MyController < Takarik::BaseController
     # Cleanup logic
   end
 end
+```
+
+##### Callback Features
+
+- **Execution Order**: Callbacks execute in the order they are defined
+- **Action Filtering**:
+  - `only: [:action1, :action2]` - Run only on specified actions
+  - `except: [:action1, :action2]` - Run on all actions except specified ones
+  - No filter (or `only: nil, except: nil`) - Run on all actions
+- **Halting Execution**: Before callbacks can halt execution by returning `false`
+- **Mixed Syntax**: You can use both individual and array syntax in the same controller
+- **Backward Compatibility**: The array syntax continues to work unchanged
+
+##### Choosing Your Syntax
+
+- **Individual DSL**: Use for new code - cleaner, more readable, Rails-familiar
+- **Array Syntax**: Use when migrating from older versions or when you need all callbacks defined in one place
+- **Mixed Approach**: Use individual syntax for most callbacks, array syntax for complex conditional logic
+
+Both approaches produce identical behavior and performance.
 
 #### Rendering Options
 
