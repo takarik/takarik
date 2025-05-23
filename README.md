@@ -49,12 +49,13 @@ Takarik supports view rendering with ECR (Embedded Crystal) templates by default
 class UsersController < Takarik::BaseController
   include Takarik::Views::ECRRenderer
 
-  actions :index, :show
+  layouts :application, :minimal  # Defines which layouts this controller can use
   views :index, :show  # Defines which views this controller can render
+  actions :index, :show
 
   def index
     @users = ["Alice", "Bob", "Charlie"]
-    render view: :index
+    render view: :index, layout: :application
   end
 
   def show
@@ -62,7 +63,7 @@ class UsersController < Takarik::BaseController
     render view: :show, locals: {
       "title" => JSON::Any.new("User Profile"),
       "user_id" => JSON::Any.new(params["id"])
-    }
+    }, layout: :minimal
   end
 end
 ```
@@ -85,6 +86,55 @@ Create your view templates in `./app/views/`:
 <p>Viewing user: <%= @user %></p>
 <p>User ID: <%= locals["user_id"] %></p>
 ```
+
+#### Layout Templates
+
+Create layout templates in `./app/views/layouts/`:
+
+```erb
+<!-- ./app/views/layouts/application.ecr -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title><%= locals["title"]? || "My App" %></title>
+</head>
+<body>
+  <header>
+    <h1>My Application</h1>
+  </header>
+
+  <main>
+    <%= @content %>
+  </main>
+
+  <footer>
+    <p>&copy; 2024 My App</p>
+  </footer>
+</body>
+</html>
+```
+
+```erb
+<!-- ./app/views/layouts/minimal.ecr -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title><%= locals["title"]? || "App" %></title>
+</head>
+<body>
+  <%= @content %>
+</body>
+</html>
+```
+
+The `@content` variable contains the rendered view content that gets inserted into the layout.
+
+**Layout Usage:**
+- Use the `layouts` macro to declare which layouts your controller can use (similar to `views`)
+- Specify layout in render calls: `render view: :index, layout: :application`
+- If no layout is specified in render, no layout will be applied
+- Layouts must be declared in the `layouts` macro for ECR compile-time requirements
 
 #### Custom View Engines
 
@@ -275,12 +325,13 @@ require "takarik"
 class HomeController < Takarik::BaseController
   include Takarik::Views::ECRRenderer
 
-  actions :index
+  layouts :application
   views :index
+  actions :index
 
   def index
     @message = "Welcome to Takarik!"
-    render view: :index
+    render view: :index, layout: :application
   end
 end
 

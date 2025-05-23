@@ -12,7 +12,7 @@ module Takarik
         @rendered_views = [] of {Symbol, Hash(Symbol | String, ::JSON::Any)}
       end
 
-      def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any))
+      def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any), layout : Symbol? = nil)
         # Convert the locals to ensure proper type
         converted_locals = {} of Symbol | String => ::JSON::Any
         locals.each { |k, v| converted_locals[k] = v }
@@ -22,7 +22,7 @@ module Takarik
     end
 
     class CustomTestEngine < Engine
-      def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any))
+      def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any), layout : Symbol? = nil)
         "Custom engine: #{view} with #{locals.size} locals"
       end
     end
@@ -33,18 +33,27 @@ end
 class ViewEngineTestController < Takarik::BaseController
   actions :index, :show, :custom
 
-  # Mock render_template method instead of using ECR
-  def render_template(view : Symbol, locals : Hash(Symbol | String, ::JSON::Any) = {} of Symbol | String => ::JSON::Any)
+  # Mock render_view method instead of using ECR
+  def render_view(view : Symbol, locals : Hash(Symbol | String, ::JSON::Any) = {} of Symbol | String => ::JSON::Any, layout : Symbol? = nil)
     case view
     when :index
-      "<h1>Index View</h1><p>This is a test view for the view engine specs.</p>"
+      "Rendered view: index with #{locals.size} locals"
     when :show
-      "<h1>Show View</h1><p>ID: #{locals["id"]?}</p>"
+      "Rendered view: show with #{locals.size} locals"
     when :custom
-      title = locals["title"]?.try(&.as_s) || "Default Title"
-      items = locals["items"]?.try(&.as_a) || [] of JSON::Any
-      items_html = items.map { |item| "<li>#{item.as_s}</li>" }.join
-      "<h1>#{title}</h1><ul>#{items_html}</ul>"
+      "Rendered view: custom with #{locals.size} locals"
+    when :test_view
+      "Rendered view: test_view with #{locals.size} locals"
+    when :profile
+      "Rendered view: profile with #{locals.size} locals"
+    when :test1
+      "Rendered view: test1 with #{locals.size} locals"
+    when :view1
+      "Rendered view: view1 with #{locals.size} locals"
+    when :complex
+      "Rendered view: complex with #{locals.size} locals"
+    when :mixed
+      "Rendered view: mixed with #{locals.size} locals"
     else
       raise "Unknown view: #{view}"
     end
@@ -78,8 +87,8 @@ end
 class MinimalViewController < Takarik::BaseController
   actions :simple
 
-  # Mock render_template method
-  def render_template(view : Symbol, locals : Hash(Symbol | String, ::JSON::Any) = {} of Symbol | String => ::JSON::Any)
+  # Mock render_view method
+  def render_view(view : Symbol, locals : Hash(Symbol | String, ::JSON::Any) = {} of Symbol | String => ::JSON::Any, layout : Symbol? = nil)
     case view
     when :simple
       "<h1>Simple View</h1><p>This is a minimal test view.</p>"
@@ -113,7 +122,7 @@ describe "Takarik::Views" do
       engine = Takarik::Views::CustomTestEngine.new
       controller = create_test_controller
 
-      result = engine.render(controller, :test_view, {} of Symbol | String => JSON::Any)
+      result = engine.render(controller, :test_view, {} of Symbol | String => JSON::Any, nil)
       result.should eq("Custom engine: test_view with 0 locals")
     end
 
@@ -122,7 +131,7 @@ describe "Takarik::Views" do
       controller = create_test_controller
       locals = {"name" => JSON::Any.new("World"), "count" => JSON::Any.new(42)} of Symbol | String => JSON::Any
 
-      result = engine.render(controller, :test_view, locals)
+      result = engine.render(controller, :test_view, locals, nil)
 
       result.should eq("test output")
       engine.rendered_views.should eq([{:test_view, locals}])
@@ -140,60 +149,60 @@ describe "Takarik::Views" do
       controller = ViewEngineTestController.new(create_test_context, {} of String => String)
       locals = {"test" => JSON::Any.new("value")} of Symbol | String => JSON::Any
 
-      # Test that the engine can be called (uses mocked render_template)
-      result = engine.render(controller, :index, locals)
+      # Test that the engine can be called (uses mocked render_view)
+      result = engine.render(controller, :index, locals, nil)
       result.should be_a(String)
-      result.should contain("Index View")
+      result.should contain("index")
     end
   end
 
   describe "ECRRenderer module" do
     describe "views macro" do
-      it "generates render_template method when included" do
-        # Test that including ECRRenderer provides render_template capability
+      it "generates render_view method when included" do
+        # Test that including ECRRenderer provides render_view capability
         # We can't test actual ECR compilation without template files
         # So we test the interface availability
-        ViewEngineTestController.new(create_test_context, {} of String => String).responds_to?(:render_template).should be_true
+        ViewEngineTestController.new(create_test_context, {} of String => String).responds_to?(:render_view).should be_true
       end
 
       it "handles view names correctly with mocked templates" do
         controller = ViewEngineTestController.new(create_test_context, {} of String => String)
 
         # Test index view (no locals required)
-        result = controller.render_template(:index)
+        result = controller.render_view(:index)
         result.should be_a(String)
-        result.should contain("Index View")
+        result.should contain("index")
 
         # Test show view (requires id local)
-        result = controller.render_template(:show, {"id" => JSON::Any.new("123")} of Symbol | String => JSON::Any)
+        result = controller.render_view(:show, {"id" => JSON::Any.new("123")} of Symbol | String => JSON::Any)
         result.should be_a(String)
-        result.should contain("Show View")
-        result.should contain("123")
+        result.should contain("show")
+        result.should contain("1 locals")
 
         # Test custom view (requires title and items locals)
         custom_locals = {
           "title" => JSON::Any.new("Test Title"),
           "items" => JSON::Any.new(["item1", "item2"].map { |item| JSON::Any.new(item) })
         } of Symbol | String => JSON::Any
-        result = controller.render_template(:custom, custom_locals)
+        result = controller.render_view(:custom, custom_locals)
         result.should be_a(String)
-        result.should contain("Test Title")
+        result.should contain("custom")
       end
 
       it "accepts locals parameter" do
         controller = ViewEngineTestController.new(create_test_context, {} of String => String)
         locals = {"name" => JSON::Any.new("test")} of Symbol | String => JSON::Any
 
-        result = controller.render_template(:index, locals)
-        result.should contain("Index View")
+        result = controller.render_view(:index, locals)
+        result.should contain("index")
       end
 
       it "works with controllers that have minimal views" do
         controller = MinimalViewController.new(create_test_context, {} of String => String)
 
-        controller.responds_to?(:render_template).should be_true
+        controller.responds_to?(:render_view).should be_true
 
-        result = controller.render_template(:simple)
+        result = controller.render_view(:simple)
         result.should contain("Simple View")
       end
     end
@@ -203,7 +212,7 @@ describe "Takarik::Views" do
         controller = ViewEngineTestController.new(create_test_context, {} of String => String)
 
         expect_raises(Exception, /Unknown view: nonexistent/) do
-          controller.render_template(:nonexistent)
+          controller.render_view(:nonexistent)
         end
       end
     end
@@ -248,7 +257,7 @@ describe "Takarik::Views" do
       controller = ViewEngineTestController.new(create_test_context, {} of String => String)
 
       expect_raises(Exception, /Unknown view: nonexistent/) do
-        controller.render_template(:nonexistent)
+        controller.render_view(:nonexistent)
       end
     end
 
@@ -268,7 +277,7 @@ describe "Takarik::Views" do
       controller = ViewEngineTestController.new(create_test_context, {} of String => String)
 
       expect_raises(Exception, /Unknown view/) do
-        controller.render_template(:nonexistent_view)
+        controller.render_view(:nonexistent_view)
       end
     end
   end
@@ -369,16 +378,16 @@ describe "Takarik::Views" do
     it "handles controllers without views macro" do
       controller = NoViewsController.new(create_test_context, {} of String => String)
 
-      # Should not have render_template method
-      controller.responds_to?(:render_template).should be_false
+      # Should not have render_view method
+      controller.responds_to?(:render_view).should be_false
     end
 
     it "works with empty views list" do
-      # Test that controllers with mock render_template work properly
+      # Test that controllers with mock render_view work properly
       controller = MinimalViewController.new(create_test_context, {} of String => String)
 
       expect_raises(Exception, /Unknown view: nonexistent/) do
-        controller.render_template(:nonexistent)
+        controller.render_view(:nonexistent)
       end
     end
   end

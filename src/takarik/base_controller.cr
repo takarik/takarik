@@ -69,7 +69,7 @@ module Takarik
       end
     end
 
-    protected def render(view : Symbol? = nil, locals : Hash(Symbol | String, ::JSON::Any) = {} of Symbol => ::JSON::Any, content_type = "text/html")
+    protected def render(view : Symbol? = nil, locals : Hash(Symbol | String, ::JSON::Any) = {} of Symbol => ::JSON::Any, layout : Symbol? = nil, content_type = "text/html")
       engine = Takarik.config.view_engine
       unless engine
         raise "No view engine configured. Set Takarik.config.view_engine."
@@ -83,7 +83,7 @@ module Takarik
       end
 
       response.content_type = content_type
-      response.print engine.render(self, view, locals)
+      response.print engine.render(self, view, locals, layout)
     end
 
     protected def render(plain text : String, content_type = "text/plain")

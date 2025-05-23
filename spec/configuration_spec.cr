@@ -10,7 +10,7 @@ module Takarik
         @rendered_calls = [] of {Symbol, Hash(Symbol | String, ::JSON::Any)}
       end
 
-      def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any))
+      def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any), layout : Symbol? = nil)
         # Convert the locals to ensure proper type
         converted_locals = {} of Symbol | String => ::JSON::Any
         locals.each { |k, v| converted_locals[k] = v }
@@ -20,13 +20,13 @@ module Takarik
     end
 
     class CustomEngine < Takarik::Views::Engine
-      def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any))
+      def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any), layout : Symbol? = nil)
         "custom engine: #{view}"
       end
     end
 
     class AnotherEngine < Takarik::Views::Engine
-      def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any))
+      def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any), layout : Symbol? = nil)
         "another engine: #{view}"
       end
     end
