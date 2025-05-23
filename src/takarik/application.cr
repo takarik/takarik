@@ -11,7 +11,11 @@ module Takarik
     getter port : Int32
 
     def initialize(@host = "0.0.0.0", @port = 3000)
-      Log.setup_from_env
+      # Only setup logging if not running tests (CRYSTAL_SPEC env var is set by test suite)
+      unless ENV["CRYSTAL_SPEC"]? == "1"
+        Log.setup_from_env
+      end
+
       Log.info { "Initializing Takarik application..." }
 
       @router = Router.instance

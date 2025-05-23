@@ -20,6 +20,8 @@ A lightweight web framework for Crystal, providing routing, controllers, and vie
 require "takarik"
 ```
 
+### Basic Application Setup
+
 Create controllers, define routes, and start your application:
 
 ```crystal
@@ -31,112 +33,354 @@ class HomeController < Takarik::BaseController
   end
 end
 
+# Start your application
+app = Takarik::Application.new
+app.router.define do
+  get "/", controller: HomeController, action: :index
+end
+app.run
+```
+
+### Views and Templates
+
+Takarik supports view rendering with ECR (Embedded Crystal) templates by default:
+
+```crystal
 class UsersController < Takarik::BaseController
-  actions :index, :show, :new, :create, :edit, :update, :destroy, :refresh
+  include Takarik::Views::ECRRenderer
+
+  actions :index, :show
+  views :index, :show  # Defines which views this controller can render
 
   def index
-    render plain: "List of users"
+    @users = ["Alice", "Bob", "Charlie"]
+    render view: :index
   end
 
   def show
-    render plain: "User #{params["id"]}"
+    @user = "User #{params["id"]}"
+    render view: :show, locals: {
+      "title" => JSON::Any.new("User Profile"),
+      "user_id" => JSON::Any.new(params["id"])
+    }
+  end
+end
+```
+
+Create your view templates in `./app/views/`:
+
+```erb
+<!-- ./app/views/users/index.ecr -->
+<h1>Users</h1>
+<ul>
+<% @users.each do |user| %>
+  <li><%= user %></li>
+<% end %>
+</ul>
+```
+
+```erb
+<!-- ./app/views/users/show.ecr -->
+<h1><%= locals["title"] %></h1>
+<p>Viewing user: <%= @user %></p>
+<p>User ID: <%= locals["user_id"] %></p>
+```
+
+#### Custom View Engines
+
+You can also create custom view engines:
+
+```crystal
+class MyCustomEngine < Takarik::Views::Engine
+  def render(controller : Takarik::BaseController, view : Symbol, locals : Hash(Symbol | String, JSON::Any))
+    "Custom rendered: #{view} with #{locals.size} locals"
+  end
+end
+
+# Configure your custom engine
+Takarik.configure do |config|
+  config.view_engine = MyCustomEngine.new
+end
+```
+
+### Controller Features
+
+Controllers support various rendering options and callbacks:
+
+```crystal
+class UsersController < Takarik::BaseController
+  actions :index, :show, :create, :destroy
+
+  # Callbacks - executed before/after actions
+  before_actions [
+    {method: :authenticate_user, only: nil, except: nil},
+    {method: :load_user, only: [:show, :destroy], except: nil}
+  ]
+  after_actions [
+    {method: :log_activity, only: nil, except: [:index]}
+  ]
+
+  def index
+    render json: ["user1", "user2"]
   end
 
-  def new
-    render plain: "New user form"
+  def show
+    render plain: "User: #{@user}"
   end
 
   def create
-    # Process form submission
-    render plain: "User created"
-  end
-
-  def edit
-    # Implementation needed
-  end
-
-  def update
-    # Implementation needed
+    # Process creation
+    render status: 201
   end
 
   def destroy
-    # Implementation needed
+    # Delete user
+    head :no_content
   end
 
-  def refresh
-    # Custom member action
-    render plain: "Refreshing data for user #{params["id"]}"
+  private
+
+  def authenticate_user
+    # Authentication logic
+    return true
+  end
+
+  def load_user
+    @user = params["id"]
+    return true
+  end
+
+  def log_activity
+    puts "Action completed: #{@current_action_name}"
+    return true
+  end
+end
+```
+
+#### Callbacks
+
+Takarik supports before and after action callbacks with flexible filtering:
+
+```crystal
+class MyController < Takarik::BaseController
+  # Include the callbacks module
+  include Takarik::Callbacks
+
+  # Define callbacks with array syntax
+  before_actions [
+    {method: :authenticate, only: nil, except: nil},                    # Run on all actions
+    {method: :load_resource, only: [:show, :update, :destroy], except: nil},  # Run only on specified actions
+    {method: :check_permissions, only: nil, except: [:index, :show]}   # Run on all except specified actions
+  ]
+
+  after_actions [
+    {method: :log_action, only: nil, except: nil},
+    {method: :cleanup, only: [:destroy], except: nil}
+  ]
+
+  private def authenticate
+    # Return false to halt execution
+    return false unless authenticated?
+    true
+  end
+
+  private def load_resource
+    @resource = find_resource(params["id"])
+    true
+  end
+
+  private def check_permissions
+    # Callback logic here
+    true
+  end
+
+  private def log_action
+    puts "Action #{@current_action_name} completed"
+  end
+
+  private def cleanup
+    # Cleanup logic
   end
 end
 
+#### Rendering Options
+
+Controllers support multiple rendering formats:
+
+```crystal
+# Plain text
+render plain: "Hello World"
+
+# JSON response
+render json: {"message" => "success"}
+
+# Status codes
+render status: :created
+render status: 404
+
+# Head response (headers only)
+head :ok
+head :not_found
+
+# View templates (with ECRRenderer)
+render view: :index
+render view: :show, locals: {"title" => JSON::Any.new("Page Title")}
+```
+
+### Routing
+
+Takarik provides flexible routing with support for RESTful resources:
+
+```crystal
 app = Takarik::Application.new
 
-# Define routes
 app.router.define do
-  # Simple routes
+  # Basic routes
   get "/", controller: HomeController, action: :index
 
-  # Controller-scoped routes
-  map UsersController do
-    # RESTful resource routes (creates 7 standard routes)
-    resources :users do
-      # Custom member routes (operate on a specific resource)
-      member do
-        get "/refresh", action: :refresh
-      end
-    end
-
-    # With filtering
-    resources :posts, only: [:index, :show]
-    resources :comments, except: [:destroy]
-  end
-end
-
-# Or separate file like
-Takarik::Router.define do
-  # Basic routes with explicit controller
-  get "/",      controller: HomeController, action: :index
-  get "/show",  controller: HomeController, action: :show
-  get "/foo",   controller: HomeController, action: :foo
-  get "/bar",   controller: HomeController, action: :bar
-
-  # Controller-scoped routes
-  map UsersController do
-    get "/users",      action: :index
-    get "/users/new",  action: :new
-    get "/users/:id",  action: :show
-    post "/users",     action: :create
-  end
-
-  # Controller with both explicit routes and resources
-  map BarsController do
-    get "/bars/:id",  action: :show
-
-    # Resource with filtered actions (no block)
-    resources :bars,  except: [:show, :create, :update, :destroy]
-  end
-
-  # Simple resource with only specific actions
-  resources :foos, controller: FoosController, only: [:index]
-
-  # Full resource with nested collection/member blocks
-  resources :admins, controller: AdminsController do
-    # Routes applied to the collection (/admins/...)
-    collection do
-      get "/baz", action: :baz
-    end
-
-    # Routes applied to individual resources (/admins/:id/...)
+  # RESTful resources
+  resources :users, controller: UsersController do
     member do
-      get "/qux", action: :qux
+      get "/profile", action: :profile
+      post "/activate", action: :activate
+    end
+
+    collection do
+      get "/search", action: :search
     end
   end
+
+  # Controller-scoped routes
+  map AdminController do
+    get "/admin/dashboard", action: :dashboard
+    resources :admin_users, only: [:index, :show]
+  end
+
+  # Resource filtering
+  resources :posts, only: [:index, :show, :create]
+  resources :comments, except: [:destroy]
 end
 
 app.run
 ```
 
-### Resource Routing
+#### Complete Example
+
+Here's a complete application showcasing all features:
+
+```crystal
+require "takarik"
+
+# Home controller with view rendering
+class HomeController < Takarik::BaseController
+  include Takarik::Views::ECRRenderer
+
+  actions :index
+  views :index
+
+  def index
+    @message = "Welcome to Takarik!"
+    render view: :index
+  end
+end
+
+# Users controller with callbacks and various render options
+class UsersController < Takarik::BaseController
+  actions :index, :show, :create, :profile, :search
+
+  before_actions [
+    {method: :authenticate, only: nil, except: [:index]}
+  ]
+  after_actions [
+    {method: :log_action, only: nil, except: nil}
+  ]
+
+  def index
+    render json: [
+      {"id" => 1, "name" => "Alice"},
+      {"id" => 2, "name" => "Bob"}
+    ]
+  end
+
+  def show
+    render json: {"id" => params["id"], "name" => "User #{params["id"]}"}
+  end
+
+  def create
+    # Create user logic here
+    render status: :created
+  end
+
+  def profile
+    render plain: "Profile for user #{params["id"]}"
+  end
+
+  def search
+    query = params["q"]?
+    render json: {"query" => query, "results" => ["result1", "result2"]}
+  end
+
+  private
+
+  def authenticate
+    # Add authentication logic
+    true
+  end
+
+  def log_action
+    puts "Executed action: #{@current_action_name}"
+    true
+  end
+end
+
+# Create and configure application
+app = Takarik::Application.new
+
+# Configure view engine (optional - ECR is default)
+Takarik.configure do |config|
+  config.view_engine = Takarik::Views::ECREngine.new
+end
+
+# Define routes
+app.router.define do
+  get "/", controller: HomeController, action: :index
+
+  resources :users, controller: UsersController do
+    member do
+      get "/profile", action: :profile
+    end
+
+    collection do
+      get "/search", action: :search
+    end
+  end
+end
+
+# Start the server
+app.run  # Defaults to 0.0.0.0:3000
+```
+
+Create your view template:
+
+```erb
+<!-- ./app/views/home/index.ecr -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Takarik App</title>
+</head>
+<body>
+  <h1><%= @message %></h1>
+  <p>Your Takarik application is running!</p>
+</body>
+</html>
+```
+
+## Development
+
+Run tests with `crystal spec`
+
+#### RESTful Routing Conventions
 
 The `resources` method creates RESTful routes following Rails conventions:
 
@@ -150,18 +394,22 @@ The `resources` method creates RESTful routes following Rails conventions:
 | PATCH/PUT | /resources/:id | #update | Update a resource |
 | DELETE | /resources/:id | #destroy | Delete a resource |
 
-#### Custom Resource Routes
+## Configuration
 
-You can add custom routes to resources:
+Configure your application with various options:
 
 ```crystal
-resources :users, controller: UsersController do
-  # Routes that operate on a specific user
-  member do
-    get "/refresh", action: :refresh        # Creates GET /users/:id/refresh
-    post "/send_email", action: :send_email # Creates POST /users/:id/send_email
-  end
+Takarik.configure do |config|
+  # Set custom view engine
+  config.view_engine = MyCustomEngine.new
+
+  # Or use default ECR engine
+  config.view_engine = Takarik::Views::ECREngine.new
 end
+
+# Start application with custom host/port
+app = Takarik::Application.new("127.0.0.1", 4000)
+app.run
 ```
 
 ## Development
