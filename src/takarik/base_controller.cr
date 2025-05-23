@@ -105,6 +105,51 @@ module Takarik
       render(status: status)
     end
 
+    # Helper method to create locals hash with automatic JSON::Any conversion
+    protected def locals(**args)
+      result = {} of Symbol | String => ::JSON::Any
+      args.each do |key, value|
+        result[key.to_s] = convert_to_json_any(value)
+      end
+      result
+    end
+
+    # Overload for hash input
+    protected def locals(hash : Hash)
+      result = {} of Symbol | String => ::JSON::Any
+      hash.each do |key, value|
+        result[key.to_s] = convert_to_json_any(value)
+      end
+      result
+    end
+
+    # Convert various types to JSON::Any
+    private def convert_to_json_any(value)
+      case value
+      when ::JSON::Any
+        value
+      when String
+        ::JSON::Any.new(value)
+      when Int32, Int64
+        ::JSON::Any.new(value.to_i64)
+      when Float32, Float64
+        ::JSON::Any.new(value.to_f64)
+      when Bool
+        ::JSON::Any.new(value)
+      when Array
+        ::JSON::Any.new(value.map { |item| convert_to_json_any(item) })
+      when Hash
+        hash_result = {} of String => ::JSON::Any
+        value.each { |k, v| hash_result[k.to_s] = convert_to_json_any(v) }
+        ::JSON::Any.new(hash_result)
+      when Nil
+        ::JSON::Any.new(nil)
+      else
+        # For other types, try to convert to string
+        ::JSON::Any.new(value.to_s)
+      end
+    end
+
     macro actions(*actions)
       def dispatch(action_name : Symbol)
         @current_action_name = action_name

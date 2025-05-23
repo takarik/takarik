@@ -26,6 +26,19 @@ class TestBaseController < Takarik::BaseController
   def public_params
     params
   end
+
+  # Public methods for testing protected render functionality
+  def public_render(**args)
+    render(**args)
+  end
+
+  def public_locals(**args)
+    locals(**args)
+  end
+
+  def public_locals(hash : Hash)
+    locals(hash)
+  end
 end
 
 class InheritedController < TestBaseController
@@ -215,6 +228,59 @@ describe Takarik::BaseController do
       controller.dispatch(:inherited_action)
 
       controller.context.response.status.should eq(HTTP::Status::OK)
+    end
+  end
+
+  describe "locals helper method" do
+    it "converts various data types to JSON::Any" do
+      context = create_test_context
+      controller = TestBaseController.new(context, {} of String => String)
+
+      result = controller.public_locals(
+        string_val: "hello",
+        int_val: 42,
+        float_val: 3.14,
+        bool_val: true,
+        array_val: [1, 2, 3],
+        hash_val: {"nested" => "value"},
+        nil_val: nil
+      )
+
+      result["string_val"].as_s.should eq("hello")
+      result["int_val"].as_i64.should eq(42)
+      result["float_val"].as_f.should be_close(3.14, 0.01)
+      result["bool_val"].as_bool.should be_true
+      result["array_val"].as_a.size.should eq(3)
+      result["hash_val"].as_h["nested"].as_s.should eq("value")
+      result["nil_val"].as_nil.should be_nil
+    end
+
+    it "accepts hash input" do
+      context = create_test_context
+      controller = TestBaseController.new(context, {} of String => String)
+
+      input = {"name" => "test", "count" => 5}
+      result = controller.public_locals(input)
+
+      result["name"].as_s.should eq("test")
+      result["count"].as_i64.should eq(5)
+    end
+
+    it "handles nested arrays and hashes" do
+      context = create_test_context
+      controller = TestBaseController.new(context, {} of String => String)
+
+      result = controller.public_locals(
+        nested: {
+          "users" => ["alice", "bob"],
+          "meta" => {"total" => 2, "active" => true}
+        }
+      )
+
+      nested = result["nested"].as_h
+      nested["users"].as_a.map(&.as_s).should eq(["alice", "bob"])
+      nested["meta"].as_h["total"].as_i64.should eq(2)
+      nested["meta"].as_h["active"].as_bool.should be_true
     end
   end
 

@@ -60,10 +60,12 @@ class UsersController < Takarik::BaseController
 
   def show
     @user = "User #{params["id"]}"
-    render view: :show, locals: {
-      "title" => JSON::Any.new("User Profile"),
-      "user_id" => JSON::Any.new(params["id"])
-    }, layout: :minimal
+    render view: :show, locals: locals(
+      title: "User Profile",
+      user_id: params["id"],
+      is_admin: true,
+      tags: ["user", "profile", "active"]
+    ), layout: :minimal
   end
 end
 ```
@@ -175,17 +177,30 @@ class UsersController < Takarik::BaseController
   end
 
   def show
-    render plain: "User: #{@user}"
+    render json: {"id" => params["id"], "name" => "User #{params["id"]}"}
   end
 
   def create
-    # Process creation
-    render status: 201
+    # Create user logic here
+    render status: :created
   end
 
   def destroy
     # Delete user
     head :no_content
+  end
+
+  def profile
+    render plain: "Profile for user #{params["id"]}"
+  end
+
+  def search
+    query = params["q"]?
+    render json: locals(
+      query: query || "",
+      results: ["Alice", "Bob"].select(&.downcase.includes?((query || "").downcase)),
+      total: 2
+    )
   end
 
   private
@@ -274,7 +289,35 @@ head :not_found
 
 # View templates (with ECRRenderer)
 render view: :index
-render view: :show, locals: {"title" => JSON::Any.new("Page Title")}
+render view: :show, locals: locals(title: "Page Title", count: 42)
+
+# Using the locals helper for automatic type conversion
+render view: :profile, locals: locals(
+  user_name: "John Doe",
+  email: "john@example.com",
+  is_admin: true,
+  scores: [85, 92, 78],
+  metadata: {"role" => "user", "active" => true}
+)
+```
+
+**Locals Helper:**
+The `locals` helper automatically converts common Crystal types to the required `JSON::Any` format:
+- `String`, `Int`, `Float`, `Bool` → Converted automatically
+- `Array` → Each element converted recursively
+- `Hash` → Keys converted to strings, values converted recursively
+- `JSON::Any` → Passed through unchanged
+
+```crystal
+# Instead of this verbose syntax:
+locals_hash = {
+  "name" => JSON::Any.new("John"),
+  "age" => JSON::Any.new(25),
+  "active" => JSON::Any.new(true)
+} of Symbol | String => JSON::Any
+
+# Use this simple syntax:
+locals(name: "John", age: 25, active: true)
 ```
 
 ### Routing
@@ -368,7 +411,11 @@ class UsersController < Takarik::BaseController
 
   def search
     query = params["q"]?
-    render json: {"query" => query, "results" => ["result1", "result2"]}
+    render json: locals(
+      query: query || "",
+      results: ["Alice", "Bob"].select(&.downcase.includes?((query || "").downcase)),
+      total: 2
+    )
   end
 
   private
