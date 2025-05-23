@@ -11,26 +11,34 @@ module Takarik
       end
 
       def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any))
-        @rendered_calls << {view, locals}
-        "test engine rendered: #{view}"
+        # Convert the locals to ensure proper type
+        converted_locals = {} of Symbol | String => ::JSON::Any
+        locals.each { |k, v| converted_locals[k] = v }
+        @rendered_calls << {view, converted_locals}
+        "Rendered #{view}"
       end
     end
 
-    class CustomEngine < Engine
+    class CustomEngine < Takarik::Views::Engine
       def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any))
-        "custom engine rendered: #{view} with #{locals.size} locals"
+        "custom engine: #{view}"
       end
     end
 
-    class AnotherEngine < Engine
+    class AnotherEngine < Takarik::Views::Engine
       def render(controller : BaseController, view : Symbol, locals : Hash(Symbol | String, ::JSON::Any))
-        "another engine output"
+        "another engine: #{view}"
       end
     end
   end
 end
 
-describe Takarik::Configuration do
+describe "Takarik::Configuration" do
+  # Reset configuration before each test
+  before_each do
+    Takarik.configure { |c| c.view_engine = Takarik::Views::ECREngine.new }
+  end
+
   describe "initialization" do
     it "initializes with default ECR view engine" do
       config = Takarik::Configuration.new

@@ -1,7 +1,31 @@
-/docs/
-/lib/
+# Test directories (created during testing)
+/app/
+
+# Crystal build output
 /bin/
+/lib/
 /.shards/
+
+# Documentation output
+/docs/
+
+# IDE files
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
 *.dwarf
 
 # Libraries don't need dependency lock
