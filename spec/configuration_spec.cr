@@ -54,6 +54,15 @@ describe "Takarik::Configuration" do
       config1.should_not eq(config2)
       config1.view_engine.should_not eq(config2.view_engine)
     end
+
+    it "sets default values" do
+      config = Takarik::Configuration.new
+
+      config.view_engine.should be_a(Takarik::Views::ECREngine)
+      config.static_file_handler.should be_a(Takarik::StaticFileHandler)
+      config.serve_static_files?.should be_true
+      config.static_url_prefix.should eq("/")
+    end
   end
 
   describe "view engine configuration" do
@@ -326,6 +335,48 @@ describe "Takarik::Configuration" do
           end
         end
       end
+    end
+  end
+
+  describe "#static_files" do
+    it "configures static file serving" do
+      config = Takarik::Configuration.new
+
+      config.static_files(
+        public_dir: "./assets",
+        cache_control: "public, max-age=86400",
+        url_prefix: "/static",
+        enable_etag: false,
+        enable_last_modified: false,
+        index_files: ["home.html"]
+      )
+
+      config.serve_static_files?.should be_true
+      config.static_url_prefix.should eq("/static")
+
+      handler = config.static_file_handler.not_nil!
+      handler.public_dir.should eq("./assets")
+      handler.cache_control.should eq("public, max-age=86400")
+      handler.enable_etag.should be_false
+      handler.enable_last_modified.should be_false
+      handler.index_files.should eq(["home.html"])
+    end
+  end
+
+  describe "#disable_static_files!" do
+    it "disables static file serving" do
+      config = Takarik::Configuration.new
+
+      # Should start enabled
+      config.serve_static_files?.should be_true
+      config.static_file_handler.should_not be_nil
+
+      # Disable it
+      config.disable_static_files!
+
+      # Should now be disabled
+      config.serve_static_files?.should be_false
+      config.static_file_handler.should be_nil
     end
   end
 end

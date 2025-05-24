@@ -2,6 +2,7 @@ require "http/server"
 require "./router"
 require "./base_controller"
 require "./callbacks"
+require "./configuration"
 require "log"
 
 module Takarik
@@ -15,6 +16,18 @@ module Takarik
       request = context.request
       response = context.response
       start_time = Time.monotonic
+
+      # Try to serve static files first if enabled
+      if Takarik.config.serve_static_files?
+        if static_handler = Takarik.config.static_file_handler
+          if StaticFileHandler.static_path?(request.path, Takarik.config.static_url_prefix)
+            if static_handler.call(context)
+              log_request(request, response, Time.monotonic - start_time)
+              return
+            end
+          end
+        end
+      end
 
       matched = router.match(request.method.to_s, request.path.not_nil!)
 

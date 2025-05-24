@@ -453,6 +453,84 @@ end
 app.run
 ```
 
+### Static File Serving
+
+Takarik includes comprehensive static file serving capabilities with security, performance, and caching features built-in.
+
+#### Basic Usage
+
+Static file serving is enabled by default and serves files from the `./public` directory:
+
+```crystal
+# Static files are served automatically from ./public
+# GET /css/style.css → serves ./public/css/style.css
+# GET /js/app.js → serves ./public/js/app.js
+# GET / → serves ./public/index.html (if it exists)
+```
+
+#### Configuration
+
+Configure static file serving with custom options:
+
+```crystal
+Takarik.configure do |config|
+  config.static_files(
+    public_dir: "./assets",                    # Custom directory
+    cache_control: "public, max-age=86400",   # Cache for 24 hours
+    url_prefix: "/static",                     # Only serve files under /static
+    enable_etag: true,                         # Enable ETag headers
+    enable_last_modified: true,                # Enable Last-Modified headers
+    index_files: ["index.html", "index.htm"]  # Directory index files
+  )
+end
+```
+
+#### Disable Static File Serving
+
+```crystal
+Takarik.configure do |config|
+  config.disable_static_files!
+end
+```
+
+#### Features
+
+- **Security**: Protection against directory traversal attacks
+- **Performance**: ETag and Last-Modified headers for efficient caching
+- **MIME Types**: Automatic content-type detection for 30+ file types
+- **Conditional Requests**: Returns 304 Not Modified when appropriate
+- **Directory Index**: Automatic serving of index files for directories
+- **Streaming**: Efficient serving of large files with streaming
+- **URL Decoding**: Proper handling of URL-encoded file names
+
+#### Supported File Types
+
+Static file serving automatically detects MIME types for:
+
+- **Web Assets**: `.html`, `.css`, `.js`, `.json`, `.xml`
+- **Images**: `.png`, `.jpg`, `.gif`, `.svg`, `.webp`, `.ico`
+- **Fonts**: `.woff`, `.woff2`, `.ttf`, `.otf`, `.eot`
+- **Documents**: `.pdf`, `.txt`, `.md`
+- **Media**: `.mp3`, `.mp4`, `.webm`, `.ogg`, `.wav`
+- **Archives**: `.zip`, `.tar`, `.gz`
+- **Other**: `.map` (source maps), `.wasm` (WebAssembly)
+
+#### Directory Structure
+
+```
+your_app/
+├── public/
+│   ├── css/
+│   │   └── style.css
+│   ├── js/
+│   │   └── app.js
+│   ├── images/
+│   │   └── logo.png
+│   └── index.html
+└── app/
+    └── ...
+```
+
 #### Complete Example
 
 Here's a complete application showcasing all features:
@@ -597,8 +675,15 @@ Takarik.configure do |config|
   # Set custom view engine
   config.view_engine = MyCustomEngine.new
 
-  # Or use default ECR engine
-  config.view_engine = Takarik::Views::ECREngine.new
+  # Configure static file serving
+  config.static_files(
+    public_dir: "./public",
+    cache_control: "public, max-age=3600",
+    enable_etag: true
+  )
+
+  # Or disable static file serving
+  # config.disable_static_files!
 end
 
 # Start application with custom host/port

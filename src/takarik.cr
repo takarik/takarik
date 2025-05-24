@@ -1,5 +1,7 @@
 require "./takarik/configuration"
 require "./takarik/callbacks"
+require "./takarik/mime_types"
+require "./takarik/static_file_handler"
 require "./takarik/views/engine"
 require "./takarik/base_controller"
 require "./takarik/router"
