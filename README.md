@@ -515,6 +515,299 @@ Static file serving automatically detects MIME types for:
 - **Archives**: `.zip`, `.tar`, `.gz`
 - **Other**: `.map` (source maps), `.wasm` (WebAssembly)
 
+### Session Management
+
+Takarik provides comprehensive session management with multiple storage backends, flash messages, and secure cookie handling.
+
+#### Basic Usage
+
+Sessions are enabled by default with in-memory storage. Access sessions in any controller:
+
+**Note:** The main session class is `Takarik::Session::Instance` (avoiding repetitive naming), but you access it simply as `session` in controllers.
+
+```crystal
+class UserController < Takarik::BaseController
+  actions :login, :dashboard, :logout
+
+  def login
+    # Store data in session
+    session["user_id"] = "123"
+    session["username"] = "alice"
+    session["role"] = "admin"
+
+    # Set flash message
+    flash.notice = "Successfully logged in!"
+
+    # Redirect
+    response.status = :found
+    response.headers["Location"] = "/dashboard"
+  end
+
+  def dashboard
+    # Read from session
+    user_id = session["user_id"].try(&.as_s?)
+    username = session["username"].try(&.as_s?)
+
+    unless user_id
+      flash.alert = "Please log in first"
+      response.status = :found
+      response.headers["Location"] = "/login"
+      return
+    end
+
+    render plain: "Welcome #{username}!"
+  end
+
+  def logout
+    # Destroy entire session
+    session.destroy
+    flash.notice = "Logged out successfully"
+
+    response.status = :found
+    response.headers["Location"] = "/login"
+  end
+end
+```
+
+#### Session API
+
+```crystal
+# Store values (automatically converts types)
+session["key"] = "string value"
+session["count"] = 42
+session["active"] = true
+session["data"] = {"nested" => "hash"}
+session["items"] = [1, 2, 3]
+
+# Read values (session["key"] already returns JSON::Any?)
+value = session["key"].try(&.as_s?)     # Returns String?
+count = session["count"].try(&.as_i64?) # Returns Int64?
+active = session["active"].try(&.as_bool?) # Returns Bool?
+
+# Important: Don't use session["key"]? - the method already returns nilable!
+
+# Check existence
+session.has_key?("key")  # Returns Bool
+
+# Get all keys
+session.keys  # Returns Array(String)
+
+# Delete specific key
+session.delete("key")
+
+# Clear all session data
+session.clear
+
+# Check if session has been modified
+session.dirty?  # Returns Bool
+
+# Check if session is empty
+session.empty?  # Returns Bool
+```
+
+#### Flash Messages
+
+Flash messages persist data for exactly one request (perfect for notifications):
+
+```crystal
+# Set flash messages
+flash.notice = "Operation successful!"
+flash.alert = "Warning: Check your input"
+flash.error = "Something went wrong"
+
+# Or use generic flash
+flash["custom"] = "Custom message"
+
+# Read flash messages (available in next request)
+notice = flash.notice  # Returns String?
+alert = flash.alert    # Returns String?
+error = flash.error    # Returns String?
+custom = flash["custom"].try(&.as_s?)
+
+# Check flash state
+flash.empty?  # Returns Bool
+flash.keys    # Returns Array(String)
+flash.clear   # Clear all flash messages
+```
+
+#### Storage Backends
+
+##### Memory Store (Default)
+
+Best for development and single-server deployments:
+
+```crystal
+Takarik.configure do |config|
+  config.use_memory_sessions(max_age: 24.hours)
+end
+```
+
+##### Cookie Store
+
+Stores encrypted session data in cookies (no server storage needed):
+
+```crystal
+Takarik.configure do |config|
+  config.use_cookie_sessions(
+    secret_key: "your-secret-key-here",  # Use ENV var in production
+    max_size: 4096  # Maximum cookie size in bytes
+  )
+end
+```
+
+**Cookie Store Features:**
+- Client-side storage (no server memory usage)
+- AES-256-CBC encryption with random IVs
+- Automatic size validation
+- Tamper-proof (encrypted + signed)
+- Perfect for stateless applications
+
+##### Custom Configuration
+
+```crystal
+Takarik.configure do |config|
+  config.sessions(
+    store: Takarik::Session::MemoryStore.new(max_age: 2.hours),
+    cookie_name: "my_app_session",
+    secure: true,      # HTTPS only
+    http_only: true,   # No JavaScript access
+    same_site: "Strict"  # CSRF protection
+  )
+end
+```
+
+#### Disable Sessions
+
+```crystal
+Takarik.configure do |config|
+  config.disable_sessions!
+end
+```
+
+#### Security Best Practices
+
+1. **Use HTTPS in Production**:
+```crystal
+Takarik.configure do |config|
+  config.sessions(secure: true)  # Cookies only sent over HTTPS
+end
+```
+
+2. **Strong Secret Keys**:
+```crystal
+# Use environment variables for secrets
+secret = ENV["SESSION_SECRET"]? || raise "SESSION_SECRET required"
+config.use_cookie_sessions(secret_key: secret)
+```
+
+3. **Session Timeout**:
+```crystal
+config.use_memory_sessions(max_age: 30.minutes)  # Auto-expire sessions
+```
+
+4. **HttpOnly Cookies**:
+```crystal
+config.sessions(http_only: true)  # Prevent XSS attacks
+```
+
+#### Complete Session Example
+
+```crystal
+class SessionController < Takarik::BaseController
+  actions :login_form, :login, :logout, :dashboard
+
+  def login_form
+    render plain: <<-HTML
+    <!DOCTYPE html>
+    <html>
+    <head><title>Login</title></head>
+    <body>
+      #{flash_messages}
+      <form method="POST" action="/login">
+        <input type="text" name="username" placeholder="Username" required>
+        <input type="password" name="password" placeholder="Password" required>
+        <button type="submit">Login</button>
+      </form>
+    </body>
+    </html>
+    HTML
+  end
+
+  def login
+    username = params["username"]?.try(&.as_s?) || ""
+    password = params["password"]?.try(&.as_s?) || ""
+
+    if authenticate(username, password)
+      session["user_id"] = find_user_id(username)
+      session["username"] = username
+      session["logged_in_at"] = Time.utc.to_s
+
+      flash.notice = "Welcome back, #{username}!"
+      redirect_to "/dashboard"
+    else
+      flash.alert = "Invalid credentials"
+      redirect_to "/login"
+    end
+  end
+
+  def logout
+    username = session["username"]?.try(&.as_s?)
+    session.destroy
+
+    flash.notice = "Goodbye, #{username}!" if username
+    redirect_to "/login"
+  end
+
+  def dashboard
+    unless logged_in?
+      flash.alert = "Please log in to continue"
+      redirect_to "/login"
+      return
+    end
+
+    username = session["username"]?.try(&.as_s?) || "Unknown"
+    render plain: "Dashboard for #{username}"
+  end
+
+  private def authenticate(username, password)
+    # Your authentication logic here
+    username == "admin" && password == "secret"
+  end
+
+  private def find_user_id(username)
+    # Your user lookup logic here
+    "123"
+  end
+
+  private def logged_in?
+    session["user_id"]
+  end
+
+  private def redirect_to(path)
+    response.status = :found
+    response.headers["Location"] = path
+  end
+
+  private def flash_messages
+    messages = [] of String
+
+    if notice = flash.notice
+      messages << %(<div style="color: green;">#{notice}</div>)
+    end
+
+    if alert = flash.alert
+      messages << %(<div style="color: orange;">#{alert}</div>)
+    end
+
+    if error = flash.error
+      messages << %(<div style="color: red;">#{error}</div>)
+    end
+
+    messages.join("\n")
+  end
+end
+```
+
 #### Directory Structure
 
 ```

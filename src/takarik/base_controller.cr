@@ -3,6 +3,8 @@ require "json"
 require "uri"
 require "./views/engine"
 require "./callbacks"
+require "./session/session"
+require "./configuration"
 require "log"
 
 module Takarik
@@ -12,10 +14,12 @@ module Takarik
     property context : HTTP::Server::Context
     property route_params : Hash(String, String)
     @current_action_name : Symbol?
+    @session : Session::Instance?
 
     def initialize(@context : HTTP::Server::Context, @route_params : Hash(String, String))
       @_params = nil
       @current_action_name = nil
+      @session = nil
     end
 
     @_params : Hash(String, ::JSON::Any)? = nil
@@ -26,6 +30,49 @@ module Takarik
 
     protected def response : HTTP::Server::Response
       context.response
+    end
+
+    # Session access
+    protected def session : Session::Instance
+      return @session.not_nil! if @session
+
+      config = Takarik.config
+      return create_null_session unless config.sessions_enabled?
+
+      store = config.session_store.not_nil!
+      session_id = get_session_id_from_cookie
+
+      @session = Session::Instance.new(store, session_id)
+      @session.not_nil!
+    end
+
+    # Flash messages shortcut
+    protected def flash
+      session.flash
+    end
+
+    private def get_session_id_from_cookie : String?
+      config = Takarik.config
+      cookie_name = config.session_cookie_name
+
+      # Parse cookies from request
+      if cookie_header = request.headers["Cookie"]?
+        cookie_header.split(';').each do |cookie_part|
+          name, _, value = cookie_part.partition('=')
+          name = name.strip
+          if name == cookie_name
+            return URI.decode(value.strip)
+          end
+        end
+      end
+
+      nil
+    end
+
+    private def create_null_session : Session::Instance
+      # Create a null session that doesn't persist anything
+      null_store = Session::MemoryStore.new(0.seconds)  # Immediate expiry
+      Session::Instance.new(null_store)
     end
 
     protected def params : Hash(String, ::JSON::Any)
