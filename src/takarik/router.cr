@@ -15,6 +15,7 @@ module Takarik
     @current_controller : Takarik::BaseController.class | Nil = nil
     @current_resource : String | Nil = nil
     @current_scope : Symbol | Nil = nil
+    @current_namespace : String = ""
 
     def self.instance
       @@instance
@@ -92,6 +93,20 @@ module Takarik
       @current_controller = controller
       with self yield
       @current_controller = nil
+    end
+
+    def namespace(name : Symbol | String, &block)
+      namespace_str = name.to_s
+
+      # Save current namespace and build new one
+      prev_namespace = @current_namespace
+      @current_namespace = @current_namespace.empty? ? "/#{namespace_str}" : "#{@current_namespace}/#{namespace_str}"
+
+      # Execute the block in this object's context
+      with self yield
+
+      # Restore previous namespace
+      @current_namespace = prev_namespace
     end
 
     def resources(resource_name : Symbol | String, **options)
@@ -187,6 +202,9 @@ module Takarik
     def add_route(method : String | Symbol, path_pattern : String, controller : Takarik::BaseController.class, action : Symbol, name : String? = nil)
       http_method = method.to_s.upcase
 
+      # Prepend namespace to path pattern
+      full_path_pattern = @current_namespace.empty? ? path_pattern : "#{@current_namespace}#{path_pattern}"
+
       route_info = RouteInfo.new(
         http_method: http_method,
         controller: controller,
@@ -194,7 +212,7 @@ module Takarik
       )
 
       # Add to Radix tree
-      result = @radix_tree.find(path_pattern)
+      result = @radix_tree.find(full_path_pattern)
 
       if result.found?
         # Path exists, update the methods hash
@@ -203,21 +221,21 @@ module Takarik
       else
         # New path, create a new hash
         routes_hash = {http_method => route_info}
-        @radix_tree.add(path_pattern, routes_hash)
+        @radix_tree.add(full_path_pattern, routes_hash)
       end
 
       # Store named route - generate name automatically if not provided
-      route_name = name || generate_route_name(path_pattern, http_method, action)
+      route_name = name || generate_route_name(full_path_pattern, http_method, action)
 
       named_route = NamedRoute.new(
-        pattern: path_pattern,
+        pattern: full_path_pattern,
         http_method: http_method,
         controller: controller,
         action: action
       )
       @named_routes[route_name] = named_route
 
-      Log.debug { "Added route: #{http_method} #{path_pattern} -> #{controller.name}##{action}" + (name ? " (#{name})" : " (auto: #{route_name})") }
+      Log.debug { "Added route: #{http_method} #{full_path_pattern} -> #{controller.name}##{action}" + (name ? " (#{name})" : " (auto: #{route_name})") }
 
       route_info
     end
@@ -277,8 +295,13 @@ module Takarik
       if base_name.ends_with?("_#{action_str}")
         base_name
       else
-        # Append the action for semantic naming
-        "#{base_name}_#{action_str}"
+        # For PATCH requests with update action, use "patch" instead to distinguish from PUT
+        if http_method.upcase == "PATCH" && action == :update
+          "#{base_name}_patch"
+        else
+          # Append the action for semantic naming
+          "#{base_name}_#{action_str}"
+        end
       end
     end
 
@@ -304,20 +327,20 @@ module Takarik
       actions.each do |action|
         case action
         when :index
-          add_route("GET", path_prefix, controller, :index, "#{resource}_index")
+          add_route("GET", path_prefix, controller, :index, nil)
         when :new
-          add_route("GET", "#{path_prefix}/new", controller, :new, "#{resource}_new")
+          add_route("GET", "#{path_prefix}/new", controller, :new, nil)
         when :create
-          add_route("POST", path_prefix, controller, :create, "#{resource}_create")
+          add_route("POST", path_prefix, controller, :create, nil)
         when :show
-          add_route("GET", "#{path_prefix}/:id", controller, :show, "#{resource}_show")
+          add_route("GET", "#{path_prefix}/:id", controller, :show, nil)
         when :edit
-          add_route("GET", "#{path_prefix}/:id/edit", controller, :edit, "#{resource}_edit")
+          add_route("GET", "#{path_prefix}/:id/edit", controller, :edit, nil)
         when :update
-          add_route("PUT", "#{path_prefix}/:id", controller, :update, "#{resource}_update")
-          add_route("PATCH", "#{path_prefix}/:id", controller, :update, "#{resource}_patch")
+          add_route("PUT", "#{path_prefix}/:id", controller, :update, nil)
+          add_route("PATCH", "#{path_prefix}/:id", controller, :update, nil)
         when :destroy
-          add_route("DELETE", "#{path_prefix}/:id", controller, :destroy, "#{resource}_destroy")
+          add_route("DELETE", "#{path_prefix}/:id", controller, :destroy, nil)
         end
       end
     end

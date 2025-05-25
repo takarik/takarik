@@ -678,4 +678,148 @@ describe Takarik::Router do
       end
     end
   end
+
+  describe "#namespace" do
+    it "creates routes within a namespace" do
+      router = Takarik::Router.new
+      router.namespace(:api) do
+        get("/users", UsersController, :index)
+      end
+
+      result = router.match("GET", "/api/users")
+      result.should_not be_nil
+
+      if result
+        route_info, _ = result
+        route_info[:controller].should eq(UsersController)
+        route_info[:action].should eq(:index)
+      end
+    end
+
+    it "supports nested namespaces" do
+      router = Takarik::Router.new
+      router.namespace(:api) do
+        namespace(:v1) do
+          get("/users/:id", UsersController, :show)
+        end
+      end
+
+      result = router.match("GET", "/api/v1/users/123")
+      result.should_not be_nil
+
+      if result
+        route_info, params = result
+        route_info[:controller].should eq(UsersController)
+        route_info[:action].should eq(:show)
+        params["id"].should eq("123")
+      end
+    end
+
+    it "generates proper auto-generated route names with namespaces" do
+      router = Takarik::Router.new
+      router.namespace(:api) do
+        namespace(:v1) do
+          get("/users/:id", UsersController, :show)
+        end
+      end
+
+      # Should generate api_v1_users_show
+      router.named_routes.has_key?("api_v1_users_show").should be_true
+      path = router.path_for("api_v1_users_show", {"id" => "123"})
+      path.should eq("/api/v1/users/123")
+    end
+
+    it "works with resources inside namespaces" do
+      router = Takarik::Router.new
+      router.namespace(:api) do
+        namespace(:v1) do
+          resources(:users, UsersController)
+        end
+      end
+
+      # Test index route
+      result = router.match("GET", "/api/v1/users")
+      result.should_not be_nil
+      result.not_nil![0][:action].should eq(:index) if result
+
+      # Test show route
+      result = router.match("GET", "/api/v1/users/123")
+      result.should_not be_nil
+      if result
+        route_info, params = result
+        route_info[:action].should eq(:show)
+        params["id"].should eq("123")
+      end
+
+      # Check named routes include namespace
+      router.named_routes.has_key?("api_v1_users_index").should be_true
+      router.named_routes.has_key?("api_v1_users_show").should be_true
+      router.named_routes.has_key?("api_v1_users_patch").should be_true
+    end
+
+    it "restores namespace after block" do
+      router = Takarik::Router.new
+
+      # Add route outside namespace
+      router.get("/home", UsersController, :index)
+
+      router.namespace(:api) do
+        get("/users", UsersController, :index)
+      end
+
+      # Add another route outside namespace
+      router.get("/about", UsersController, :index)
+
+      # Routes should be created correctly
+      router.match("GET", "/home").should_not be_nil
+      router.match("GET", "/api/users").should_not be_nil
+      router.match("GET", "/about").should_not be_nil
+
+      # Non-namespaced routes should not have namespace prefix
+      router.match("GET", "/api/home").should be_nil
+      router.match("GET", "/api/about").should be_nil
+    end
+
+    it "supports complex nested namespace scenarios" do
+      router = Takarik::Router.new
+
+      # Simulate an API with versioning
+      router.namespace(:api) do
+        namespace(:v1) do
+          # Users resources with member and collection routes
+          resources(:users, UsersController) do
+            member do
+              get(:profile)
+            end
+
+            collection do
+              get(:search)
+            end
+          end
+
+          # Standalone admin routes
+          get("/admin/dashboard", TestController, :index)
+        end
+      end
+
+      # Test basic resource routes
+      router.match("GET", "/api/v1/users").should_not be_nil
+      router.match("GET", "/api/v1/users/123").should_not be_nil
+
+      # Test member and collection routes
+      router.match("GET", "/api/v1/users/123/profile").should_not be_nil
+      router.match("GET", "/api/v1/users/search").should_not be_nil
+
+      # Test custom route
+      router.match("GET", "/api/v1/admin/dashboard").should_not be_nil
+
+      # Test auto-generated route names include full namespace
+      router.named_routes.has_key?("api_v1_users_index").should be_true
+      router.named_routes.has_key?("api_v1_admin_dashboard_index").should be_true
+
+      # Test path generation
+      path = router.path_for("api_v1_users_index")
+      path.should eq("/api/v1/users")
+    end
+  end
 end
