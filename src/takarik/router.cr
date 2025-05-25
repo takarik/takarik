@@ -41,6 +41,25 @@ module Takarik
       end
     {% end %}
 
+    # Define the root route (GET /)
+    def root(controller : Takarik::BaseController.class, action : Symbol, name : String? = nil)
+      # If no name provided and we're in a namespace, let auto-generation handle it
+      # If no name provided and no namespace, default to "root"
+      route_name = if name
+        name
+      elsif @current_namespace.empty?
+        "root"
+      else
+        nil  # Let auto-generation create namespaced name
+      end
+
+      # When in a namespace, use empty path so it maps to the namespace root
+      # When not in namespace, use "/" for the actual root
+      path = @current_namespace.empty? ? "/" : ""
+
+      add_route("GET", path, controller, action, route_name)
+    end
+
     {% for verb in ["get", "post", "put", "patch", "delete"] %}
       # Support for path strings
       def {{verb.id}}(path_pattern : String, action : Symbol, name : String? = nil)

@@ -821,5 +821,86 @@ describe Takarik::Router do
       path = router.path_for("api_v1_users_index")
       path.should eq("/api/v1/users")
     end
+
+    it "works within namespaces" do
+      router = Takarik::Router.new
+      router.namespace(:admin) do
+        root(TestController, :dashboard)
+      end
+
+      result = router.match("GET", "/admin")
+      result.should_not be_nil
+      result.not_nil![0][:action].should eq(:dashboard) if result
+
+      # Should generate admin_dashboard as the route name (namespace + action)
+      router.named_routes.has_key?("admin_dashboard").should be_true
+      path = router.path_for("admin_dashboard")
+      path.should eq("/admin")
+    end
+  end
+
+  describe "#root" do
+    it "creates a root route for GET /" do
+      router = Takarik::Router.new
+      router.root(TestController, :index)
+
+      result = router.match("GET", "/")
+      result.should_not be_nil
+
+      if result
+        route_info, params = result
+        route_info[:http_method].should eq("GET")
+        route_info[:controller].should eq(TestController)
+        route_info[:action].should eq(:index)
+        params.should be_empty
+      end
+    end
+
+    it "creates a named route called 'root' by default" do
+      router = Takarik::Router.new
+      router.root(TestController, :index)
+
+      router.named_routes.has_key?("root").should be_true
+      named_route = router.named_routes["root"]
+      named_route[:pattern].should eq("/")
+      named_route[:http_method].should eq("GET")
+      named_route[:controller].should eq(TestController)
+      named_route[:action].should eq(:index)
+    end
+
+    it "allows custom route name" do
+      router = Takarik::Router.new
+      router.root(TestController, :home, name: "home_page")
+
+      router.named_routes.has_key?("home_page").should be_true
+      router.named_routes.has_key?("root").should be_false
+
+      path = router.path_for("home_page")
+      path.should eq("/")
+    end
+
+    it "works within namespaces" do
+      router = Takarik::Router.new
+      router.namespace(:admin) do
+        root(TestController, :dashboard)
+      end
+
+      result = router.match("GET", "/admin")
+      result.should_not be_nil
+      result.not_nil![0][:action].should eq(:dashboard) if result
+
+      # Should generate admin_dashboard as the route name (namespace + action)
+      router.named_routes.has_key?("admin_dashboard").should be_true
+      path = router.path_for("admin_dashboard")
+      path.should eq("/admin")
+    end
+
+    it "can generate paths using the root route name" do
+      router = Takarik::Router.new
+      router.root(TestController, :index)
+
+      path = router.path_for("root")
+      path.should eq("/")
+    end
   end
 end
