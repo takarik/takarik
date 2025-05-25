@@ -309,9 +309,10 @@ module Takarik
       # Join resource parts with underscores and make lowercase
       base_name = resource_parts.join('_').downcase
 
-      # If the base name already ends with the action, don't duplicate it
+      # Check for duplication scenarios
       action_str = action.to_s
-      if base_name.ends_with?("_#{action_str}")
+      if base_name == action_str || base_name.ends_with?("_#{action_str}")
+        # Avoid duplication: use base_name when it already contains the action
         base_name
       else
         # For PATCH requests with update action, use "patch" instead to distinguish from PUT

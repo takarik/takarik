@@ -676,6 +676,23 @@ describe Takarik::Router do
         # Root path should generate a reasonable name
         router.named_routes.has_key?("root").should be_true
       end
+
+      it "avoids duplication when path segment matches action name" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/show", TestController, :show)
+        router.add_route("GET", "/login", TestController, :login)
+        router.add_route("GET", "/dashboard", TestController, :dashboard)
+
+        # Should generate clean names without duplication
+        router.named_routes.has_key?("show").should be_true
+        router.named_routes.has_key?("login").should be_true
+        router.named_routes.has_key?("dashboard").should be_true
+
+        # Should not have duplicated names
+        router.named_routes.has_key?("show_show").should be_false
+        router.named_routes.has_key?("login_login").should be_false
+        router.named_routes.has_key?("dashboard_dashboard").should be_false
+      end
     end
   end
 
