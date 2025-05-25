@@ -4,10 +4,12 @@ require "log"
 require "./base_controller"
 
 alias RouteInfo = {http_method: String, controller: Takarik::BaseController.class, action: Symbol}
+alias NamedRoute = {pattern: String, http_method: String, controller: Takarik::BaseController.class, action: Symbol}
 
 module Takarik
   class Router
     getter radix_tree : Radix::Tree(Hash(String, RouteInfo))
+    getter named_routes : Hash(String, NamedRoute)
 
     @@instance : self = self.new
     @current_controller : Takarik::BaseController.class | Nil = nil
@@ -22,15 +24,25 @@ module Takarik
       with instance yield
     end
 
+    # Generate URL from named route
+    def self.url_for(route_name : String, params : Hash(String, String | Int32) = {} of String => String | Int32) : String
+      instance.url_for(route_name, params)
+    end
+
+    # Generate path from named route (without domain)
+    def self.path_for(route_name : String, params : Hash(String, String | Int32) = {} of String => String | Int32) : String
+      instance.path_for(route_name, params)
+    end
+
     {% for verb in ["get", "post", "put", "patch", "delete"] %}
-      def {{verb.id}}(path_pattern : String, controller : Takarik::BaseController.class, action : Symbol)
-        add_route({{verb.upcase}}, path_pattern, controller, action)
+      def {{verb.id}}(path_pattern : String, controller : Takarik::BaseController.class, action : Symbol, name : String? = nil)
+        add_route({{verb.upcase}}, path_pattern, controller, action, name)
       end
     {% end %}
 
     {% for verb in ["get", "post", "put", "patch", "delete"] %}
       # Support for path strings
-      def {{verb.id}}(path_pattern : String, action : Symbol)
+      def {{verb.id}}(path_pattern : String, action : Symbol, name : String? = nil)
         raise "Controller scope required. Use within a controller block." unless @current_controller
 
         # Check if we're in a collection or member scope
@@ -46,11 +58,11 @@ module Takarik
         # Apply the prefix if needed
         full_path = path_prefix.empty? ? path_pattern : "#{path_prefix}#{path_pattern}"
 
-        add_route({{verb.upcase}}, full_path, @current_controller.not_nil!, action)
+        add_route({{verb.upcase}}, full_path, @current_controller.not_nil!, action, name)
       end
 
       # Rails-style symbol shortcuts
-      def {{verb.id}}(action : Symbol)
+      def {{verb.id}}(action : Symbol, name : String? = nil)
         raise "Controller scope required. Use within a controller block." unless @current_controller
         raise "Symbol shortcuts can only be used within collection or member blocks" unless @current_scope
 
@@ -63,12 +75,13 @@ module Takarik
           "/#{action}" # Should never happen due to the check above
         end
 
-        add_route({{verb.upcase}}, path_prefix, @current_controller.not_nil!, action)
+        add_route({{verb.upcase}}, path_prefix, @current_controller.not_nil!, action, name)
       end
     {% end %}
 
     def initialize
       @radix_tree = Radix::Tree(Hash(String, RouteInfo)).new
+      @named_routes = {} of String => NamedRoute
     end
 
     def define(&block)
@@ -171,7 +184,7 @@ module Takarik
       nil # No match found
     end
 
-    def add_route(method : String | Symbol, path_pattern : String, controller : Takarik::BaseController.class, action : Symbol)
+    def add_route(method : String | Symbol, path_pattern : String, controller : Takarik::BaseController.class, action : Symbol, name : String? = nil)
       http_method = method.to_s.upcase
 
       route_info = RouteInfo.new(
@@ -193,9 +206,80 @@ module Takarik
         @radix_tree.add(path_pattern, routes_hash)
       end
 
-      Log.debug { "Added route: #{http_method} #{path_pattern} -> #{controller.name}##{action}" }
+      # Store named route - generate name automatically if not provided
+      route_name = name || generate_route_name(path_pattern, http_method, action)
+
+      named_route = NamedRoute.new(
+        pattern: path_pattern,
+        http_method: http_method,
+        controller: controller,
+        action: action
+      )
+      @named_routes[route_name] = named_route
+
+      Log.debug { "Added route: #{http_method} #{path_pattern} -> #{controller.name}##{action}" + (name ? " (#{name})" : " (auto: #{route_name})") }
 
       route_info
+    end
+
+    # Generate URL from named route
+    def url_for(route_name : String, params : Hash(String, String | Int32) = {} of String => String | Int32) : String
+      path_for(route_name, params)
+    end
+
+    # Generate path from named route (without domain)
+    def path_for(route_name : String, params : Hash(String, String | Int32) = {} of String => String | Int32) : String
+      unless named_route = @named_routes[route_name]?
+        raise "No route found with name '#{route_name}'"
+      end
+
+      pattern = named_route[:pattern]
+      result_path = pattern.dup
+
+      # Replace named parameters in the pattern
+      params.each do |key, value|
+        result_path = result_path.gsub(":#{key}", value.to_s)
+      end
+
+      # Check if there are any unresolved parameters
+      if result_path.includes?(':')
+        missing_params = result_path.scan(/:(\w+)/).map(&.[1])
+        raise "Missing required parameters: #{missing_params.join(", ")} for route '#{route_name}'"
+      end
+
+      result_path
+    end
+
+    # Generate a route name from path pattern and HTTP method
+    private def generate_route_name(path_pattern : String, http_method : String, action : Symbol) : String
+      # Handle root path
+      return "root" if path_pattern == "/"
+
+      # Remove leading and trailing slashes
+      clean_path = path_pattern.strip('/')
+
+      # Split into parts and process them
+      parts = clean_path.split('/')
+
+      # Remove parameter parts and keep only the resource names
+      resource_parts = [] of String
+      parts.each do |part|
+        unless part.starts_with?(':')
+          resource_parts << part
+        end
+      end
+
+      # Join resource parts with underscores and make lowercase
+      base_name = resource_parts.join('_').downcase
+
+      # If the base name already ends with the action, don't duplicate it
+      action_str = action.to_s
+      if base_name.ends_with?("_#{action_str}")
+        base_name
+      else
+        # Append the action for semantic naming
+        "#{base_name}_#{action_str}"
+      end
     end
 
     private def setup_resource_routes(resource_name : Symbol | String, controller : Takarik::BaseController.class, options)
@@ -220,20 +304,20 @@ module Takarik
       actions.each do |action|
         case action
         when :index
-          add_route("GET", path_prefix, controller, :index)
+          add_route("GET", path_prefix, controller, :index, "#{resource}_index")
         when :new
-          add_route("GET", "#{path_prefix}/new", controller, :new)
+          add_route("GET", "#{path_prefix}/new", controller, :new, "#{resource}_new")
         when :create
-          add_route("POST", path_prefix, controller, :create)
+          add_route("POST", path_prefix, controller, :create, "#{resource}_create")
         when :show
-          add_route("GET", "#{path_prefix}/:id", controller, :show)
+          add_route("GET", "#{path_prefix}/:id", controller, :show, "#{resource}_show")
         when :edit
-          add_route("GET", "#{path_prefix}/:id/edit", controller, :edit)
+          add_route("GET", "#{path_prefix}/:id/edit", controller, :edit, "#{resource}_edit")
         when :update
-          add_route("PUT", "#{path_prefix}/:id", controller, :update)
-          add_route("PATCH", "#{path_prefix}/:id", controller, :update)
+          add_route("PUT", "#{path_prefix}/:id", controller, :update, "#{resource}_update")
+          add_route("PATCH", "#{path_prefix}/:id", controller, :update, "#{resource}_patch")
         when :destroy
-          add_route("DELETE", "#{path_prefix}/:id", controller, :destroy)
+          add_route("DELETE", "#{path_prefix}/:id", controller, :destroy, "#{resource}_destroy")
         end
       end
     end

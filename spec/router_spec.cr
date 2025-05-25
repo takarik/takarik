@@ -516,4 +516,166 @@ describe Takarik::Router do
       end
     end
   end
+
+  describe "named routes" do
+    describe "#add_route with name" do
+      it "stores named route when name is provided" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/users/:id", TestController, :show, "user_show")
+
+        router.named_routes.has_key?("user_show").should be_true
+        named_route = router.named_routes["user_show"]
+        named_route[:pattern].should eq("/users/:id")
+        named_route[:http_method].should eq("GET")
+        named_route[:controller].should eq(TestController)
+        named_route[:action].should eq(:show)
+      end
+    end
+
+    describe "#path_for" do
+      it "generates path from named route without parameters" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/users", TestController, :index, "users_index")
+
+        path = router.path_for("users_index")
+        path.should eq("/users")
+      end
+
+      it "generates path from named route with parameters" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/users/:id", TestController, :show, "user_show")
+
+        path = router.path_for("user_show", {"id" => "123"})
+        path.should eq("/users/123")
+      end
+
+      it "generates path with multiple parameters" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/users/:user_id/posts/:id", TestController, :show, "user_post")
+
+        path = router.path_for("user_post", {"user_id" => "42", "id" => "123"})
+        path.should eq("/users/42/posts/123")
+      end
+
+      it "accepts Int32 parameters" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/users/:id", TestController, :show, "user_show")
+
+        path = router.path_for("user_show", {"id" => 123})
+        path.should eq("/users/123")
+      end
+
+      it "raises error for non-existent route name" do
+        router = Takarik::Router.new
+
+        expect_raises(Exception, "No route found with name 'non_existent'") do
+          router.path_for("non_existent")
+        end
+      end
+
+      it "raises error for missing required parameters" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/users/:id", TestController, :show, "user_show")
+
+        expect_raises(Exception, /Missing required parameters: id/) do
+          router.path_for("user_show")
+        end
+      end
+    end
+
+    describe "#url_for" do
+      it "returns same as path_for (since full URL generation is not implemented)" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/users/:id", TestController, :show, "user_show")
+
+        url = router.url_for("user_show", {"id" => "123"})
+        path = router.path_for("user_show", {"id" => "123"})
+        url.should eq(path)
+      end
+    end
+
+    describe "class methods" do
+      it "provides class-level path_for method" do
+        Takarik::Router.instance.add_route("GET", "/test/:id", TestController, :show, "test_show")
+
+        path = Takarik::Router.path_for("test_show", {"id" => "456"})
+        path.should eq("/test/456")
+      end
+
+      it "provides class-level url_for method" do
+        Takarik::Router.instance.add_route("GET", "/test/:id", TestController, :show, "test_show_class")
+
+        url = Takarik::Router.url_for("test_show_class", {"id" => "789"})
+        url.should eq("/test/789")
+      end
+    end
+
+    describe "resource routes with auto-generated names" do
+      it "generates standard RESTful route names" do
+        router = Takarik::Router.new
+        router.resources(:users, UsersController)
+
+        # Check that named routes were created
+        router.named_routes.has_key?("users_index").should be_true
+        router.named_routes.has_key?("users_new").should be_true
+        router.named_routes.has_key?("users_create").should be_true
+        router.named_routes.has_key?("users_show").should be_true
+        router.named_routes.has_key?("users_edit").should be_true
+        router.named_routes.has_key?("users_update").should be_true
+        router.named_routes.has_key?("users_patch").should be_true
+        router.named_routes.has_key?("users_destroy").should be_true
+      end
+
+      it "allows path generation from resource route names" do
+        router = Takarik::Router.new
+        router.resources(:users, UsersController)
+
+        router.path_for("users_index").should eq("/users")
+        router.path_for("users_new").should eq("/users/new")
+        router.path_for("users_show", {"id" => "123"}).should eq("/users/123")
+        router.path_for("users_edit", {"id" => "456"}).should eq("/users/456/edit")
+      end
+    end
+
+    describe "automatic route name generation" do
+      it "generates names for routes without explicit names" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/users", TestController, :index)
+        router.add_route("POST", "/users", TestController, :create)
+        router.add_route("GET", "/users/:id", TestController, :show)
+        router.add_route("GET", "/users/:id/edit", TestController, :edit)
+
+        # Check that auto-generated names exist
+        router.named_routes.has_key?("users_index").should be_true
+        router.named_routes.has_key?("users_create").should be_true
+        router.named_routes.has_key?("users_show").should be_true
+        router.named_routes.has_key?("users_edit").should be_true
+      end
+
+      it "can generate paths using auto-generated names" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/api/v1/users/:user_id/posts/:id", TestController, :show)
+
+        # Auto-generated name should be: api_v1_users_posts_show
+        router.path_for("api_v1_users_posts_show", {"user_id" => "123", "id" => "456"}).should eq("/api/v1/users/123/posts/456")
+      end
+
+      it "prefers explicit names over auto-generated ones" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/users", TestController, :index, "custom_users_list")
+
+        # Should use the explicit name, not auto-generated "users"
+        router.named_routes.has_key?("custom_users_list").should be_true
+        router.named_routes.has_key?("users").should be_false
+      end
+
+      it "handles root path correctly" do
+        router = Takarik::Router.new
+        router.add_route("GET", "/", TestController, :index)
+
+        # Root path should generate a reasonable name
+        router.named_routes.has_key?("root").should be_true
+      end
+    end
+  end
 end

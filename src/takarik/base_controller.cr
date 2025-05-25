@@ -197,6 +197,33 @@ module Takarik
       end
     end
 
+    # Redirect to a URL or route
+    protected def redirect_to(location : String | URI, status : Symbol | Int32 = :found)
+      redirect_status = status.is_a?(Symbol) ? HTTP::Status.parse(status.to_s) : HTTP::Status.new(status)
+      response.redirect(location, redirect_status)
+    end
+
+    # Redirect to a named route
+    protected def redirect_to(route_name : Symbol, params : Hash(String, String | Int32) = {} of String => String | Int32, status : Symbol | Int32 = :found)
+      path = Router.path_for(route_name.to_s, params)
+      redirect_to(path, status)
+    end
+
+    # Redirect back to the referrer, with a fallback URL
+    protected def redirect_back(fallback_url : String = "/", status : Symbol | Int32 = :found)
+      referrer = request.headers["Referer"]?
+      redirect_to(referrer || fallback_url, status)
+    end
+
+    # Helper methods for path generation
+    protected def url_for(route_name : Symbol, params : Hash(String, String | Int32) = {} of String => String | Int32) : String
+      Router.url_for(route_name.to_s, params)
+    end
+
+    protected def path_for(route_name : Symbol, params : Hash(String, String | Int32) = {} of String => String | Int32) : String
+      Router.path_for(route_name.to_s, params)
+    end
+
     macro actions(*actions)
       def dispatch(action_name : Symbol)
         @current_action_name = action_name
