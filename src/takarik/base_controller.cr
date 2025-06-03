@@ -145,7 +145,7 @@ module Takarik
 
     protected def render(json data : T) forall T
       response.content_type = "application/json"
-      data.to_json(response)
+      response.print data.to_json
     end
 
     protected def head(status : Int | Symbol)
