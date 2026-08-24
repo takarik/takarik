@@ -15,14 +15,14 @@ module Takarik
     def dispatch(context : HTTP::Server::Context)
       request = context.request
       response = context.response
-      start_time = Time.monotonic
+      start_time = Time.instant
 
       # Try to serve static files first if enabled
       if Takarik.config.serve_static_files?
         if static_handler = Takarik.config.static_file_handler
           if StaticFileHandler.static_path?(request.path, Takarik.config.static_url_prefix)
             if static_handler.call(context)
-              log_request(request, response, Time.monotonic - start_time)
+              log_request(request, response, Time.instant - start_time)
               return
             end
           end
@@ -35,7 +35,7 @@ module Takarik
         response.status = :not_found
         response.content_type = "text/plain"
         response.puts "Not Found"
-        log_request(request, response, Time.monotonic - start_time)
+        log_request(request, response, Time.instant - start_time)
         return
       end
 
@@ -74,7 +74,7 @@ module Takarik
         response.puts "Internal Server Error\n\n#{ex.message}\n#{ex.backtrace.join("\n")}"
         Log.error(exception: ex) { "Error processing request: #{request.method} #{request.path}" }
       ensure
-        log_request(request, response, Time.monotonic - start_time)
+        log_request(request, response, Time.instant - start_time)
       end
     end
 

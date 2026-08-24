@@ -9,6 +9,8 @@ require "./takarik/session/session"
 require "./takarik/views/engine"
 require "./takarik/base_controller"
 require "./takarik/router"
+require "./takarik/websocket/base"
+require "./takarik/websocket/hub"
 require "./takarik/dispatcher"
 require "./takarik/application"
 

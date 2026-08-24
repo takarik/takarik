@@ -12,6 +12,6 @@ dependencies:
   radix:
     github: luislavena/radix
 
-crystal: 1.12.1
+crystal: 1.21.0
 
 license: MIT

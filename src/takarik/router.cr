@@ -5,10 +5,12 @@ require "./base_controller"
 
 alias RouteInfo = {http_method: String, controller: Takarik::BaseController.class, action: Symbol}
 alias NamedRoute = {pattern: String, http_method: String, controller: Takarik::BaseController.class, action: Symbol}
+alias WebSocketRoute = {socket_class: Takarik::WebSocket.class}
 
 module Takarik
   class Router
     getter radix_tree : Radix::Tree(Hash(String, RouteInfo))
+    getter websocket_radix_tree : Radix::Tree(WebSocketRoute)
     getter named_routes : Hash(String, NamedRoute)
 
     @@instance : self = self.new
@@ -101,6 +103,7 @@ module Takarik
 
     def initialize
       @radix_tree = Radix::Tree(Hash(String, RouteInfo)).new
+      @websocket_radix_tree = Radix::Tree(WebSocketRoute).new
       @named_routes = {} of String => NamedRoute
     end
 
@@ -194,6 +197,32 @@ module Takarik
       with self yield
 
       @current_scope = prev_scope
+    end
+
+    # Define a WebSocket endpoint. `socket_class` must be a subclass of Takarik::WebSocket.
+    # Respects the current namespace (but not resource/collection scopes).
+    def websocket(path_pattern : String, socket_class : Takarik::WebSocket.class)
+      full_path_pattern = @current_namespace.empty? ? path_pattern : "#{@current_namespace}#{path_pattern}"
+
+      result = @websocket_radix_tree.find(full_path_pattern)
+      if result.found?
+        raise "WebSocket route already defined for #{full_path_pattern}"
+      else
+        @websocket_radix_tree.add(full_path_pattern, {socket_class: socket_class})
+      end
+
+      Log.debug { "Added WebSocket route: GET #{full_path_pattern} -> #{socket_class.name}" }
+    end
+
+    def match_websocket(request_path : String) : {Takarik::WebSocket.class, Hash(String, String)}?
+      result = @websocket_radix_tree.find(request_path)
+
+      if result.found?
+        params = result.params || {} of String => String
+        return {result.payload[:socket_class], params}
+      end
+
+      nil
     end
 
     def match(request_method : String, request_path : String) : {RouteInfo, Hash(String, String)}?

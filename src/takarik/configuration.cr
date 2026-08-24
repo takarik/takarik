@@ -14,6 +14,7 @@ module Takarik
     property session_cookie_secure : Bool
     property session_cookie_http_only : Bool
     property session_cookie_same_site : String
+    property websocket_allowed_origins : Array(String)?
 
     def initialize
       @view_engine = Takarik::Views::ECREngine.new
@@ -25,6 +26,7 @@ module Takarik
       @session_cookie_secure = false  # Set to true in production with HTTPS
       @session_cookie_http_only = true
       @session_cookie_same_site = "Lax"
+      @websocket_allowed_origins = nil # nil means all origins are accepted
     end
 
     def serve_static_files? : Bool
@@ -81,9 +83,20 @@ module Takarik
       @session_store = nil
     end
 
-    # Check if sessions are enabled
     def sessions_enabled? : Bool
       !@session_store.nil?
+    end
+
+    # Restrict WebSocket upgrades to the given origins (compared against the
+    # request's `Origin` header). Pass nil to allow any origin.
+    def websocket_origins(origins : Array(String) | Nil)
+      @websocket_allowed_origins = origins && origins.map(&.downcase)
+    end
+
+    def websocket_origin_allowed?(origin : String?) : Bool
+      return true unless allowed = @websocket_allowed_origins
+      return false if origin.nil?
+      allowed.includes?(origin.downcase)
     end
 
     # Helper methods for common session configurations
