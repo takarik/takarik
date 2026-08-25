@@ -23,6 +23,7 @@ module Takarik
     end
 
     @_params : Hash(String, ::JSON::Any)? = nil
+    @parsed_body : ::JSON::Any? = nil
 
     protected def request : HTTP::Request
       context.request
@@ -91,6 +92,7 @@ module Takarik
               json_body = body.gets_to_end
               if json_body.bytesize > 0
                 parsed_body = ::JSON.parse(json_body)
+                @parsed_body = parsed_body
                 if parsed_body.is_a?(Hash)
                   parsed_body.as(Hash).each { |k, v| merged_params[k.to_s] = v }
                 else
@@ -145,8 +147,111 @@ module Takarik
 
     protected def render(json data : T) forall T
       response.content_type = "application/json"
-      response.print data.to_json
+      response.print serialize_with_registry(data, :json)
     end
+
+    # Explicit serializer: `render json: @user, serializer: UserSerializer`
+    protected def render(json data : T, serializer klass : S.class) forall T, S
+      response.content_type = "application/json"
+      response.print S.new(data).serialize.to_json
+    end
+
+    # JSON-API rendering. Auto-finds a registered serializer:
+    # `render jsonapi: @user`
+    # Explicit (must be registered): `render jsonapi: @user, serializer: ApiUserSerializer`
+    # NOTE: the **options splat works around a Crystal named-arg matching quirk
+    # where `json:` fails to resolve when both `json` and `jsonapi` overloads exist.
+    protected def render(jsonapi data : T, **options) forall T
+      response.content_type = "application/vnd.api+json"
+
+      serializer_name = nil
+      options.each { |k, v| serializer_name = v.to_s if k == :serializer }
+
+      res = data.as?(Resource)
+      entry = serializer_name ? Serializers.entry_named?(serializer_name.not_nil!) : Serializers.entry_api_for(data.class)
+
+      if entry && res
+        response.print entry.serialize_jsonapi.call(res).to_json
+      elsif data.responds_to?(:to_json_api)
+        response.print data.to_json_api.to_json
+      else
+        raise "No serializer registered for #{data.class} — register one or pass `serializer:` explicitly"
+      end
+    end
+
+    # Collections: `render jsonapi: @users` wraps resources in {"data": [...]}
+    protected def render(jsonapi data : Array(T), **options) forall T
+      response.content_type = "application/vnd.api+json"
+
+      serializer_name = nil
+      options.each { |k, v| serializer_name = v.to_s if k == :serializer }
+      entry = serializer_name ? Serializers.entry_named?(serializer_name.not_nil!) : Serializers.entry_api_for(T)
+
+      docs = data.map do |item|
+        res = item.as?(Resource)
+        if entry && res
+          entry.serialize_jsonapi_resource.call(res)
+        elsif item.responds_to?(:to_json_api)
+          item.to_json_api
+        else
+          raise "No serializer registered for #{T} — register one or pass `serializer:` explicitly"
+        end
+      end
+      response.print ::JSON::Any.new({"data" => ::JSON::Any.new(docs)}).to_json
+    end
+
+    private def serialize_with_registry(data : T, format : Symbol) forall T
+      entry = Serializers.entry_for(data.class)
+
+      if entry && (res = data.as?(Resource))
+        doc = case format
+              when :jsonapi then entry.serialize_jsonapi.call(res)
+              else               entry.serialize.call(res)
+              end
+        doc.to_json
+      elsif data.responds_to?(:to_json)
+        data.to_json
+      else
+        raise "No serializer registered for #{data.class} and it does not respond to #to_json"
+      end
+    end
+
+    # --- Deserialization --------------------------------------------------
+
+    # The raw parsed request body (when Content-Type is JSON), memoized during params parsing.
+    protected def request_payload : ::JSON::Any?
+      params # ensure body parsing has run
+      if payload = @parsed_body
+        return payload
+      end
+      # Fall back to merged params (route/query/form) as an attribute hash
+      ::JSON::Any.new(params)
+    end
+
+    # Attribute hash for `model_class`, using its registered serializer's
+    # deserialization rules (JSON-API serializers dig into data.attributes),
+    # or pass a serializer explicitly:
+    #   resource_attributes(User, serializer: UserSerializer)
+    protected def resource_attributes(model_class : Class, serializer klass : S.class) forall S
+      S.deserialize(request_payload.not_nil!)
+    end
+
+    protected def resource_attributes(model_class : Class)
+      payload = request_payload.not_nil!
+      hash = payload.as_h? || raise ArgumentError.new("Request payload is not a JSON object")
+
+      # JSON-API envelope: {"data": {"type": ..., "attributes": {...}}}
+      if hash.has_key?("data")
+        data = hash["data"].as_h?
+        attrs = data.try(&.fetch("attributes", nil))
+        return attrs.as_h if attrs && attrs.as_h?
+        raise ArgumentError.new("Invalid JSON-API payload: missing data.attributes")
+      end
+
+      hash
+    end
+
+
 
     protected def head(status : Int | Symbol)
       render(status: status)
