@@ -158,18 +158,22 @@ module Takarik
 
     # JSON-API rendering. Auto-finds a registered serializer:
     # `render jsonapi: @user`
-    # Explicit (must be registered): `render jsonapi: @user, serializer: ApiUserSerializer`
-    # NOTE: the **options splat works around a Crystal named-arg matching quirk
-    # where `json:` fails to resolve when both `json` and `jsonapi` overloads exist.
+    # Explicit serializer (class or registered name):
+    # `render jsonapi: @user, serializer: ApiUserSerializer` — passing the class
+    # instantiates it directly via its macro-generated __takarik_entry; no
+    # registry lookup happens for that call.
+    # NOTE: the **options splat works around a Crystal named-arg matching quirk:
+    # adding a typed `jsonapi ... serializer klass : S.class` overload makes the
+    # equivalent `json:` overload silently stop matching (verified in Crystal 1.21).
     protected def render(jsonapi data : T, **options) forall T
       response.content_type = "application/vnd.api+json"
 
-      serializer_name = nil
-      options.each { |k, v| serializer_name = v.to_s if k == :serializer }
+      serializer_opt = nil
+      options.each { |k, v| serializer_opt = v if k == :serializer }
+
+      entry = resolve_serializer_option(serializer_opt) || Serializers.entry_api_for(data.class)
 
       res = data.as?(Resource)
-      entry = serializer_name ? Serializers.entry_named?(serializer_name.not_nil!) : Serializers.entry_api_for(data.class)
-
       if entry && res
         response.print entry.serialize_jsonapi.call(res).to_json
       elsif data.responds_to?(:to_json_api)
@@ -180,12 +184,13 @@ module Takarik
     end
 
     # Collections: `render jsonapi: @users` wraps resources in {"data": [...]}
+    # Explicit serializer: `render jsonapi: @users, serializer: ApiUserSerializer`
     protected def render(jsonapi data : Array(T), **options) forall T
       response.content_type = "application/vnd.api+json"
 
-      serializer_name = nil
-      options.each { |k, v| serializer_name = v.to_s if k == :serializer }
-      entry = serializer_name ? Serializers.entry_named?(serializer_name.not_nil!) : Serializers.entry_api_for(T)
+      serializer_opt = nil
+      options.each { |k, v| serializer_opt = v if k == :serializer }
+      entry = resolve_serializer_option(serializer_opt) || Serializers.entry_api_for(T)
 
       docs = data.map do |item|
         res = item.as?(Resource)
@@ -198,6 +203,18 @@ module Takarik
         end
       end
       response.print ::JSON::Any.new({"data" => ::JSON::Any.new(docs)}).to_json
+    end
+
+    # Explicit-serializer option resolution: a serializer Class dispatches via
+    # its macro-generated __takarik_entry (no registry involvement); a String
+    # falls back to lookup by registered name.
+    private def resolve_serializer_option(opt)
+      case opt
+      when Class
+        opt.responds_to?(:__takarik_entry) ? opt.__takarik_entry : nil
+      when String
+        Serializers.entry_named?(opt)
+      end
     end
 
     private def serialize_with_registry(data : T, format : Symbol) forall T

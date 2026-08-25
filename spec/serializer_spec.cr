@@ -37,14 +37,23 @@ private class ApiUserSerializer < Takarik::JSONAPI::Serializer(SpecUser)
   end
 end
 
-module Takarik::Serializers
-  register UserSerializer
-  register ApiUserSerializer
-end
+# Serializers register themselves automatically via the `inherited` hook on
+# Takarik::Serializer — no manual `register` call needed.
+
+# Explicit re-registration still works and overrides the auto-registered entry:
+class RenamedUserSerializer < UserSerializer; end
+Takarik::Serializers.register(RenamedUserSerializer)
 
 # --- Unit tests ---------------------------------------------------------------
 
 describe "Takarik::Serializer" do
+  it "registers serializers automatically via the inherited hook" do
+    entry = Takarik::Serializers.entry_for(SpecUser)
+    entry.should_not be_nil
+    entry.not_nil!.name.should eq("RenamedUserSerializer")
+    Takarik::Serializers.entry_api_for(SpecUser).should_not be_nil
+  end
+
   it "serializes to plain JSON" do
     doc = UserSerializer.new(SpecUser.new(name: "Alice", id: 1_i64)).serialize
     doc.as_h["name"].as_s.should eq("Alice")
@@ -96,7 +105,9 @@ end
 # --- Controller integration ---------------------------------------------------
 
 private class SerializerTestController < Takarik::BaseController
-  actions :show_auto_json, :show_explicit_json, :show_jsonapi, :index_jsonapi, :create_from_payload
+  actions :show_auto_json, :show_explicit_json, :show_jsonapi, :show_jsonapi_explicit,
+    :show_jsonapi_explicit_unregistered_flavor, :show_jsonapi_named,
+    :index_jsonapi, :index_jsonapi_explicit, :create_from_payload
 
   def show_auto_json
     render json: SpecUser.new(name: "Alice", id: 1_i64)
@@ -110,8 +121,30 @@ private class SerializerTestController < Takarik::BaseController
     render jsonapi: SpecUser.new(name: "Dan", id: 3_i64, active: true)
   end
 
+  def show_jsonapi_explicit
+    # Class-based explicit serializer: dispatched directly via __takarik_entry,
+    # ignoring whatever JSON-API serializer is registered for SpecUser.
+    render jsonapi: SpecUser.new(name: "Erin", id: 4_i64, active: true), serializer: ApiUserSerializer
+  end
+
+  def show_jsonapi_explicit_unregistered_flavor
+    # Even though Api::UserSerializer-like JSON-API serializers are registered
+    # for this model, passing the plain serializer class must use IT:
+    # its to_json_api produces a bare resource object (no "data" envelope).
+    render jsonapi: SpecUser.new(name: "Finn", id: 5_i64), serializer: UserSerializer
+  end
+
+  def show_jsonapi_named
+    # String form: looked up among registered serializers by class name.
+    render jsonapi: SpecUser.new(name: "Gus", id: 6_i64), serializer: "ApiUserSerializer"
+  end
+
   def index_jsonapi
     render jsonapi: [SpecUser.new(name: "A", id: 1_i64), SpecUser.new(name: "B", id: 2_i64)]
+  end
+
+  def index_jsonapi_explicit
+    render jsonapi: [SpecUser.new(name: "X", id: 8_i64)], serializer: ApiUserSerializer
   end
 
   def create_from_payload
@@ -171,12 +204,46 @@ describe "Controllers: serializer rendering & deserialization" do
     parsed["data"]["attributes"]["name"].as_s.should eq("Dan")
   end
 
+  it "renders JSON-API with an explicit serializer (typed overload, no registry lookup)" do
+    resp = dispatch_to_controller(SerializerTestController) { |c| c.show_jsonapi_explicit }
+    resp.content_type.should eq("application/vnd.api+json")
+    parsed = ::JSON.parse(resp.body)
+    parsed["data"]["type"].as_s.should eq("spec_users")
+    parsed["data"]["id"].as_s.should eq("4")
+    parsed["data"]["attributes"]["name"].as_s.should eq("Erin")
+  end
+
   it "renders collections as a JSON-API array" do
     resp = dispatch_to_controller(SerializerTestController) { |c| c.index_jsonapi }
     parsed = ::JSON.parse(resp.body)
     docs = parsed["data"].as_a
     docs.size.should eq(2)
     docs[0]["attributes"]["name"].as_s.should eq("A")
+  end
+
+  it "renders collections with an explicit serializer (typed overload)" do
+    resp = dispatch_to_controller(SerializerTestController) { |c| c.index_jsonapi_explicit }
+    resp.content_type.should eq("application/vnd.api+json")
+    parsed = ::JSON.parse(resp.body)
+    docs = parsed["data"].as_a
+    docs.size.should eq(1)
+    docs[0]["id"].as_s.should eq("8")
+    docs[0]["attributes"]["name"].as_s.should eq("X")
+  end
+
+  it "uses the passed class verbatim, not the registered JSON-API serializer" do
+    resp = dispatch_to_controller(SerializerTestController) { |c| c.show_jsonapi_explicit_unregistered_flavor }
+    parsed = ::JSON.parse(resp.body)
+    # UserSerializer is a plain serializer: bare resource object, no envelope
+    parsed["type"].as_s.should eq("spec_users")
+    parsed["attributes"]["name"].as_s.should eq("Finn")
+    parsed.as_h.has_key?("data").should be_false
+  end
+
+  it "still supports lookup by registered serializer name" do
+    resp = dispatch_to_controller(SerializerTestController) { |c| c.show_jsonapi_named }
+    parsed = ::JSON.parse(resp.body)
+    parsed["data"]["attributes"]["name"].as_s.should eq("Gus")
   end
 
   it "deserializes a flat JSON payload onto model setters" do

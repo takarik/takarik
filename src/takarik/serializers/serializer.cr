@@ -54,6 +54,39 @@ module Takarik
   # Takarik::Serializers.register(UserSerializer)
   # ```
   abstract class Serializer(T) < BaseSerializer
+    # Auto-register every concrete serializer with the registry, and define a
+    # __takarik_entry class method so the serializer can be passed explicitly
+    # (`render jsonapi: @user, serializer: UserSerializer`) without any
+    # registry lookup. The hook fires for all descendants (including
+    # JSONAPI::Serializer subclasses); unbound generic declarations (whose
+    # type var is not a TypeNode) and abstract classes are skipped — those are
+    # never render targets.
+    macro inherited
+      {% begin %}
+        {% base = @type %}
+        {% for _depth in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] %}
+          {% if base.type_vars.size == 0 && (sc = base.superclass).is_a?(TypeNode) %}
+            {% base = sc %}
+          {% end %}
+        {% end %}
+        {% model = base.type_vars.size == 1 ? base.type_vars[0] : nil %}
+        {% unless model.nil? || !model.is_a?(TypeNode) || @type.abstract? %}
+          ::Takarik::Serializers.register({{@type}})
+
+          def self.__takarik_entry : ::Takarik::Serializers::Entry
+            ::Takarik::Serializers::Entry.new(
+              {{@type.stringify}},
+              ->(res : Takarik::Resource) { {{@type}}.new(res.as({{model}})).serialize },
+              ->(res : Takarik::Resource) { {{@type}}.new(res.as({{model}})).to_json_api },
+              ->(res : Takarik::Resource) { ::JSON::Any.new({{@type}}.new(res.as({{model}})).resource_object) },
+              ->(payload : ::JSON::Any) { {{@type}}.deserialize(payload) },
+              ->(payload : ::JSON::Any) : String? { {{@type}}.deserialize_id(payload) }
+            )
+          end
+        {% end %}
+      {% end %}
+    end
+
     getter object : T
 
     def initialize(@object : T)

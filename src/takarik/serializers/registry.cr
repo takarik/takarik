@@ -1,6 +1,6 @@
 module Takarik
   module Serializers
-    private class Entry
+    class Entry
       getter name : String
       getter serialize : Proc(Resource, ::JSON::Any)
       getter serialize_jsonapi : Proc(Resource, ::JSON::Any)
@@ -15,10 +15,8 @@ module Takarik
     @@flat = {} of String => Entry   # used by `render json:` / resource_attributes
     @@api = {} of String => Entry    # used by `render jsonapi:`
 
-    # Register a serializer for its model type (inferred from the generic arg).
-    # Plain serializers (< Takarik::Serializer) serve `render json:` and
-    # JSON-API ones (< Takarik::JSONAPI::Serializer) serve `render jsonapi:`.
-    # Call this from inside the Takarik::Serializers namespace:
+    # Registration happens automatically via an `inherited` macro hook on
+    # Takarik::Serializer, so simply subclassing is enough:
     #
     # ```
     # class User
@@ -27,11 +25,13 @@ module Takarik
     #
     # class UserSerializer < Takarik::Serializer(User); end
     # class ApiUserSerializer < Takarik::JSONAPI::Serializer(User); end
+    # ```
     #
-    # module Takarik::Serializers
-    #   register UserSerializer
-    #   register ApiUserSerializer
-    # end
+    # Explicit registration is only needed for serializers defined outside the
+    # inheritance chain or to override a mapping (later registrations win):
+    #
+    # ```
+    # Takarik::Serializers.register(UserSerializer)
     # ```
     macro register(serializer)
       {% begin %}
@@ -66,16 +66,42 @@ module Takarik
             {% end %}
           {% end %}
         {% end %}
-        {% store_name = api_chain ? "api" : "flat" %}
-        @@{{store_name.id}}[{{model.stringify}}] = Entry.new(
-          {{serializer.stringify}},
-          ->(res : Resource) { {{serializer}}.new(res.as({{model}})).serialize },
-          ->(res : Resource) { {{serializer}}.new(res.as({{model}})).to_json_api },
-          ->(res : Resource) { ::JSON::Any.new({{serializer}}.new(res.as({{model}})).resource_object) },
-          ->(payload : ::JSON::Any) { {{serializer}}.deserialize(payload) },
-          ->(payload : ::JSON::Any) : String? { {{serializer}}.deserialize_id(payload) }
-        )
+        {% if api_chain %}
+          ::Takarik::Serializers.store_api(
+            {{model.stringify}}, ::Takarik::Serializers::Entry.new(
+              {{serializer.stringify}},
+              ->(res : Takarik::Resource) { {{serializer}}.new(res.as({{model}})).serialize },
+              ->(res : Takarik::Resource) { {{serializer}}.new(res.as({{model}})).to_json_api },
+              ->(res : Takarik::Resource) { ::JSON::Any.new({{serializer}}.new(res.as({{model}})).resource_object) },
+              ->(payload : ::JSON::Any) { {{serializer}}.deserialize(payload) },
+              ->(payload : ::JSON::Any) : String? { {{serializer}}.deserialize_id(payload) }
+            )
+          )
+        {% else %}
+          ::Takarik::Serializers.store_flat(
+            {{model.stringify}}, ::Takarik::Serializers::Entry.new(
+              {{serializer.stringify}},
+              ->(res : Takarik::Resource) { {{serializer}}.new(res.as({{model}})).serialize },
+              ->(res : Takarik::Resource) { {{serializer}}.new(res.as({{model}})).to_json_api },
+              ->(res : Takarik::Resource) { ::JSON::Any.new({{serializer}}.new(res.as({{model}})).resource_object) },
+              ->(payload : ::JSON::Any) { {{serializer}}.deserialize(payload) },
+              ->(payload : ::JSON::Any) : String? { {{serializer}}.deserialize_id(payload) }
+            )
+          )
+        {% end %}
       {% end %}
+    end
+
+    # Storage methods used by `register`. The macro body may expand inside a
+    # user serializer class (via the `inherited` hook), where a direct
+    # `@@flat` / `@@api` assignment would lexically bind to that subclass —
+    # so all registry writes go through these module-level methods instead.
+    def self.store_flat(name : String, entry : Entry)
+      @@flat[name] = entry
+    end
+
+    def self.store_api(name : String, entry : Entry)
+      @@api[name] = entry
     end
 
     # Lookup for plain JSON serialization (`render json:`)
@@ -89,9 +115,8 @@ module Takarik
     end
 
     def self.entry_named?(serializer_class_name : String) : Entry?
-      @@flat.values.find?({@@api.values.find? { |e| e.name == serializer_class_name }}) do |e|
-        e.name == serializer_class_name
-      end
+      @@api.values.find { |e| e.name == serializer_class_name } ||
+        @@flat.values.find { |e| e.name == serializer_class_name }
     end
 
     def self.clear!
